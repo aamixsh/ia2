@@ -49,7 +49,27 @@ unified_scripts/
 
 ## 🚀 Quick Start
 
-### 0. Dataset Preparation
+### 0. Environment Setup
+
+**Install the conda environment:**
+```bash
+# Create conda environment from ia2.yaml
+conda env create -p <path_to_envs>/ia2 -f ia2.yaml
+
+# Activate the environment
+conda activate <path_to_envs>/ia2
+```
+
+**Alternative installation:**
+```bash
+# Install in default conda environments directory
+conda env create -f ia2.yaml
+
+# Activate the environment
+conda activate ia2
+```
+
+### 1. Dataset Preparation
 
 Before training models, you need to prepare the datasets:
 
@@ -89,7 +109,7 @@ python prepare_data.py --dataset sst2 --num_train_samples 2000 --num_val_samples
 python prepare_data.py --dataset agnews --num_train_samples 2000 --num_val_samples 500
 ```
 
-### 1. Training Models
+### 2. Training Models
 
 **SFT (Supervised Fine-Tuning):**
 ```bash
@@ -165,7 +185,7 @@ python train_all_unified.py --training_methods tok act --include_sequential --se
 # Hyperparameter sweep across all methods
 python train_all_unified.py --training_methods tok act tna ia3-tok ia3-act ia3-tna --datasets gsm8k --num_train_examples 100 200 --lrs 1e-4 5e-4 1e-3 --run_indices 0 1 2 --max_parallel 4
 
-### 2. Evaluating Models
+### 3. Evaluating Models
 
 **Batch evaluation (recommended):**
 ```bash
@@ -179,7 +199,7 @@ python evaluate_batch_optimized.py --model_types tok --lora_types qkv --num_exam
 python evaluate_batch_optimized.py --model_types tok act tna base --trained_datasets gsm8k --eval_datasets gsm8k --icl_source_datasets gsm8k --icl_max_demos 5 --uncertainty_analysis
 ```
 
-### 3. Generating Plots
+### 4. Generating Plots
 
 **Single configuration:**
 ```bash
