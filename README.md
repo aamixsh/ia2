@@ -1,12 +1,12 @@
-# IA2: In-Context Activation Alignment
+# IA2: ICL Activation Alignment
 
-A comprehensive framework for training and evaluating neural networks using the IA2 (In-Context Activation Alignment) method and related approaches for improving in-context learning performance.
+A comprehensive framework for training and evaluating neural networks using the IA2 (ICL Activation Alignment) method and related approaches for improving in-context learning performance.
 
 ## 🌟 Overview
 
 This project implements and compares the IA2 method and related training approaches:
 - **`tok`** (SFT): Supervised Fine-Tuning - Traditional cross-entropy loss training on ground truth or ICL output tokens
-- **`act`** (IA2): In-Context Activation Alignment - MSE loss training to imitate ICL activations  
+- **`act`** (IA2): ICL Activation Alignment - MSE loss training to imitate ICL activations  
 - **`a2t`** (IA2 → SFT): Sequential training from IA2 to SFT
 - **`tna`** (IA2 + SFT): Combined IA2 and SFT training with both MSE and cross-entropy losses
 
@@ -36,7 +36,7 @@ unified_scripts/
 python train_unified.py --training_method tok --dataset gsm8k --label_type icl_outputs --lora_type qkv --lora_r 8 --lora_alpha 8 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
 ```
 
-**IA2 (In-Context Activation Alignment):**
+**IA2 (ICL Activation Alignment):**
 ```bash
 python train_unified.py --training_method act --dataset gsm8k --lora_type qkv --lora_r 8 --lora_alpha 8 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
 ```
@@ -104,7 +104,7 @@ python plot_all_unified.py --trained_datasets gsm8k --eval_datasets gsm8k --icl_
 | Method | Description | Required Arguments | Output Directory |
 |--------|-------------|-------------------|------------------|
 | `tok` | SFT: Supervised Fine-Tuning with CE loss | `--label_type` | `../outputs/tok/{dataset}/` |
-| `act` | IA2: In-Context Activation Alignment with MSE loss | None | `../outputs/act/{dataset}/` |  
+| `act` | IA2: ICL Activation Alignment with MSE loss | None | `../outputs/act/{dataset}/` |  
 | `tna` | IA2 + SFT: Combined MSE + CE loss training | `--ce_loss_weight` | `../outputs/tna/{dataset}/` |
 | `a2t` | Sequential: IA2 → SFT | `--continue_training a2t` | `../outputs/a2t/{dataset}/` |
 | `t2a` | Sequential: SFT → IA2 | `--continue_training t2a` | `../outputs/t2a/{dataset}/` |
@@ -359,7 +359,7 @@ ls ../plots/unified/gsm8k/
 The unified system enables direct comparison between:
 - **Base Model**: Pretrained model performance with ICL
 - **SFT**: Traditional supervised fine-tuning approach
-- **IA2**: In-Context Activation Alignment for ICL behavior imitation
+- **IA2**: ICL Activation Alignment for ICL behavior imitation
 - **IA2 + SFT**: Combined approach leveraging both methods
 - **Sequential Training**: Progressive improvement strategies
 
@@ -367,11 +367,11 @@ Typical performance ordering: `base < tok < act ≈ tna` with sequential trainin
 
 ## 🔬 About IA2
 
-**In-Context Activation Alignment (IA2)** is a novel training method that improves in-context learning by aligning model activations with those produced during in-context learning. The method:
+**ICL Activation Alignment (IA2)** is a novel training method that improves ICL learning by aligning model activations with those produced during ICL learning. The method:
 
-- **Core Idea**: Train models to produce similar internal representations (activations) as when performing in-context learning
+- **Core Idea**: Train models to produce similar internal representations (activations) as when performing ICL learning
 - **Training Objective**: MSE loss between model activations and target ICL activations
-- **Key Insight**: By aligning internal representations, models can better leverage in-context learning capabilities
+- **Key Insight**: By aligning internal representations, models can better leverage ICL learning capabilities
 - **Advantages**: More efficient than traditional fine-tuning, better generalization, improved ICL performance
 
 The method is particularly effective when combined with supervised fine-tuning (SFT) or used in sequential training approaches.
