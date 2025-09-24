@@ -1,0 +1,43 @@
+# conda env create -p <path_to_envs>/ia2 -f ia2.yaml
+channels:
+  - defaults
+  - pytorch
+  - nvidia
+  - xformers
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pytorch::pytorch=2.5.1
+  - pytorch::pytorch-cuda=12.4
+  - pytorch::torchvision=0.20.1
+  - pytorch::torchaudio=2.5.1
+  - pip
+  - pip:
+    - opencv-python
+    - scikit-image
+    - tqdm
+    - matplotlib
+    - protobuf
+    - jupyterlab
+    - ipywidgets
+    - Pillow
+    - scikit-learn
+    - deepspeed
+    - wandb
+    - evaluate
+    - timm
+    - nltk
+    - pydantic
+    - imagehash
+    - distinctipy
+    - torchmetrics
+    - accelerate
+    - transformers
+    - datasets==3.6.0
+    - sentencepiece
+    - huggingface-hub
+    - beautifulsoup4
+    - tiktoken
+    - peft
+    - mkl==2024.0.0
+    - seaborn
