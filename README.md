@@ -35,7 +35,7 @@ The system also supports **base model evaluation** for direct comparison without
 ## 📁 Project Structure
 
 ```
-unified_scripts/
+scripts/
 ├── train_unified.py              # 🚀 Unified training script (all methods)
 ├── train_all_unified.py          # 🔥 Batch training script
 ├── evaluate_batch_optimized.py   # 📊 Optimized batch evaluation script
