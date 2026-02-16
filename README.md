@@ -1,6 +1,17 @@
 # IA2: ICL Activation Alignment (ICLR 2026, Rio)
 
-This repository contains the code for the paper "IA2: Alignment with ICL activations improves SFT", a comprehensive framework for training and evaluating neural networks using the IA2 (ICL Activation Alignment) method and related approaches for improving in-context learning performance.
+This repository contains the code for the paper "IA2: Alignment with ICL activations improves SFT", a comprehensive framework for training and evaluating neural networks activation alignment.
+
+## 🔬 About IA2
+
+**ICL Activation Alignment (IA2)** is a novel training method that improves ICL learning by aligning model activations with those produced during ICL learning. The method:
+
+- **Core Idea**: Train models to produce similar internal representations (activations) as when performing ICL learning
+- **Training Objective**: MSE loss between model activations and target ICL activations
+- **Key Insight**: By aligning internal representations, models can better leverage ICL learning capabilities
+- **Advantages**: More efficient than traditional fine-tuning, better generalization, improved ICL performance
+
+The method is particularly effective when combined with supervised fine-tuning (SFT) or used in sequential training approaches.
 
 ## 🌟 Overview
 
@@ -387,35 +398,6 @@ python plot_unified.py \
     --model_types tok tokl act tna
 ```
 
-## 🎯 Key Features
-
-### ✅ Unified Interface
-- Single training script for all methods
-- Consistent argument naming and conventions
-- Standardized output directory structure
-
-### ✅ Sequential Training Support  
-- Seamless continuation from one method to another
-- Automatic model discovery and loading
-- Proper checkpoint management
-
-### ✅ Comprehensive Evaluation
-- Base model comparison
-- Multiple evaluation metrics
-- Uncertainty analysis with probability distributions
-- Batch evaluation across configurations
-
-### ✅ Advanced Plotting
-- Method comparison visualizations
-- Uncertainty analysis plots  
-- Hyperparameter optimization insights
-- Batch plotting across datasets
-
-### ✅ Robust Error Handling
-- Input validation and helpful error messages
-- Automatic path construction and validation
-- Graceful handling of missing models/data
-
 ## 🔍 Troubleshooting
 
 ### Common Issues
@@ -432,53 +414,17 @@ python plot_unified.py \
 - Ensure evaluation results exist in the expected directory
 - Verify the dataset names and ICL configurations match between training/evaluation/plotting
 
-### Directory Structure Verification
 
-```bash
-# Check training outputs
-ls ../outputs/tok/gsm8k/
-ls ../outputs/act/gsm8k/
-ls ../outputs/tna/gsm8k/
 
-# Check evaluation results
-ls ../outputs/evaluations/tok/gsm8k/
-ls ../outputs/evaluations/base/
+## 📚 Citation
 
-# Check plots
-ls ../plots/unified/gsm8k/
+If you use this code or find IA2 useful in your research, please cite:
+
+```bibtex
+@article{mishra2025ia2,
+  title={{IA2: Alignment with ICL activations improves Supervised Fine-Tuning}},
+  author={Mishra, Aayush and Khashabi, Daniel and Liu, Anqi},
+  journal={arXiv preprint arXiv:2509.22621},
+  year={2025}
+}
 ```
-
-## 📊 Expected Results
-
-The unified system enables direct comparison between:
-- **Base Model**: Pretrained model performance with ICL
-- **SFT (`tok`)**: Traditional supervised fine-tuning on hard labels
-- **Soft-label SFT (`tokl`)**: Matching ICL output distributions (soft labels) instead of single-token targets
-- **IA2 (`act`)**: ICL Activation Alignment for ICL behavior imitation
-- **IA2 + SFT (`tna`)**: Combined approach leveraging both methods
-- **Sequential Training**: Progressive improvement (e.g. `a2t`: IA2 → SFT)
-
-Typical performance ordering: `base < tok ≲ tokl < act ≈ tna` with sequential training often achieving strong results.
-
-## 🔬 About IA2
-
-**ICL Activation Alignment (IA2)** is a novel training method that improves ICL learning by aligning model activations with those produced during ICL learning. The method:
-
-- **Core Idea**: Train models to produce similar internal representations (activations) as when performing ICL learning
-- **Training Objective**: MSE loss between model activations and target ICL activations
-- **Key Insight**: By aligning internal representations, models can better leverage ICL learning capabilities
-- **Advantages**: More efficient than traditional fine-tuning, better generalization, improved ICL performance
-
-The method is particularly effective when combined with supervised fine-tuning (SFT) or used in sequential training approaches.
-
-## 🤝 Contributing
-
-When adding new features:
-1. Follow the unified naming conventions (`tok`/`tokl`/`act`/`tna` and adapter-prefixed variants)
-2. Ensure compatibility with existing directory structures
-3. Add appropriate argument validation and error handling
-4. Update this README with new functionality
-
-## 📝 License
-
-[Add your license information here]
