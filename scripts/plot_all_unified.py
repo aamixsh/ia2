@@ -18,7 +18,7 @@ from itertools import product
 def run_single_plot(args_tuple):
     """Run unified plotting for a single configuration"""
     (trained_dataset, eval_dataset, icl_source_dataset, icl_max_demos, 
-     base_method, training_variants, include_base_model, uncertainty_mode, hp_selection, base_dir, output_dir, model_id) = args_tuple
+     base_method, training_variants, include_base_model, uncertainty_mode, hp_selection, base_dir, output_dir, model_id, lora_r_filter, lora_type_filter) = args_tuple
 
     script = 'plot_unified.py'
     cmd = [
@@ -44,8 +44,18 @@ def run_single_plot(args_tuple):
     # Add uncertainty mode if requested
     if uncertainty_mode:
         cmd.append('--uncertainty_mode')
+    
+    # Add lora filters if specified
+    if lora_r_filter is not None:
+        cmd.extend(['--lora_r', str(lora_r_filter)])
+    if lora_type_filter is not None:
+        cmd.extend(['--lora_type', str(lora_type_filter)])
 
     config_name = f"{trained_dataset}_{eval_dataset}_{icl_source_dataset}_{base_method}_demos{icl_max_demos}"
+    if lora_r_filter is not None:
+        config_name += f"_r{lora_r_filter}"
+    if lora_type_filter is not None:
+        config_name += f"_{lora_type_filter}"
     
     # Run the plotting
     try:
@@ -74,11 +84,11 @@ def main():
     parser = argparse.ArgumentParser(description="Batch plotting for distillation project")
     
     # Dataset configurations
-    parser.add_argument("--trained_datasets", nargs='+', default=['strategytf'],
+    parser.add_argument("--trained_datasets", nargs='+', default=['sciqa'],
                         help="Datasets models were trained on")
-    parser.add_argument("--eval_datasets", nargs='+', default=['strategytf'],
+    parser.add_argument("--eval_datasets", nargs='+', default=['sciqa'],
                         help="Datasets to evaluate on")
-    parser.add_argument("--icl_source_datasets", nargs='+', default=['strategytf'],
+    parser.add_argument("--icl_source_datasets", nargs='+', default=['sciqa'],
                         help="ICL source datasets")
     parser.add_argument("--icl_max_demos", nargs='+', type=int, default=[256],
                         help="Number of ICL demonstrations")
@@ -87,8 +97,8 @@ def main():
     parser.add_argument("--base_method", type=str, choices=['lora', 'ia3', 'prompt', 'prefix'], default='lora',
                         help="Base method to use (lora, ia3, prompt, prefix)")
     parser.add_argument("--training_variants", nargs='+', 
-                        choices=['tok', 'act', 'tna', 'a2t', 't2a'],
-                        default=['tok', 'act', 'tna', 'a2t', 't2a'],
+                        choices=['tok', 'act', 'tna', 'a2t', 't2a', 'tokl'],
+                        default=['tok', 'act', 'tna', 'a2t', 't2a', 'tokl'],
                         help="Training variants to include in plots")
     parser.add_argument("--include_base_model", action='store_true', default=True,
                         help="Include base model in comparison")
@@ -110,8 +120,12 @@ def main():
                         help="Base directory for evaluation results")
     parser.add_argument("--output_dir", type=str, default="../plots/unified",
                         help="Output directory for plots")
-    parser.add_argument("--model_id", type=str, default="Qwen/Qwen3-4B-Base", choices=['meta-llama/Llama-3.2-1B', 'Qwen/Qwen3-4B-Base', 'Qwen/Qwen2.5-1.5B', 'meta-llama/Llama-3.2-1B-Instruct', 'meta-llama/Llama-3.1-8B'],
+    parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B-Instruct", choices=['meta-llama/Llama-3.2-1B', 'Qwen/Qwen3-4B-Base', 'Qwen/Qwen2.5-1.5B', 'meta-llama/Llama-3.2-1B-Instruct', 'meta-llama/Llama-3.1-8B'],
                         help="Model ID for plot naming")
+    parser.add_argument("--lora_r", type=int, default=8,
+                        help="Filter by LoRA rank (only include results with this rank)")
+    parser.add_argument("--lora_type", type=str, default='qko',
+                        help="Filter by LoRA type (only include results with this type, e.g., 'qkv', 'qko')")
     
     args = parser.parse_args()
     
@@ -141,7 +155,9 @@ def main():
             # args.plot_types,      # plot_types
             args.base_dir,        # base_dir
             args.output_dir,      # output_dir
-            args.model_id         # model_id
+            args.model_id,        # model_id
+            args.lora_r,          # lora_r_filter
+            args.lora_type        # lora_type_filter
         )
         plot_experiments.append(plot_experiment)
 
@@ -200,7 +216,9 @@ def main():
             'max_parallel': args.max_parallel,
             'base_dir': args.base_dir,
             'output_dir': args.output_dir,
-            'model_id': args.model_id
+            'model_id': args.model_id,
+            'lora_r': args.lora_r,
+            'lora_type': args.lora_type
         },
         'total_experiments': len(plot_experiments),
         'successful': successful,

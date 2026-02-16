@@ -87,11 +87,12 @@ class ICLDataset(Dataset):
 
 
 class ICLDatasetWithOutputs(ICLDataset):
-    def __init__(self, base_dataset, icl_outputs=None, icl_activations=None, training_mode='icl_outputs'):
+    def __init__(self, base_dataset, icl_outputs=None, icl_activations=None, training_mode='icl_outputs', icl_distributions=None):
         super().__init__(base_dataset.examples, base_dataset.tokenizer, base_dataset.icl_demos, base_dataset.device, base_dataset.num_generated_tokens, base_dataset.parse_answer_func)
         self.icl_outputs = icl_outputs
         self.icl_activations = icl_activations
         self.training_mode = training_mode
+        self.icl_distributions = icl_distributions
         if self.training_mode not in ['icl_outputs', 'ground_truth']:
             raise ValueError("Invalid training mode")
 
@@ -129,6 +130,8 @@ class ICLDatasetWithOutputs(ICLDataset):
                 result['inputs_with_icl_outputs'] = inputs_with_icl_outputs
                 if self.icl_activations is not None:
                     result['icl_activations'] = self.icl_activations[idx]
+                if self.icl_distributions is not None:
+                    result['icl_distributions'] = self.icl_distributions[idx]
             
             elif self.training_mode == 'ground_truth' and result['ground_truth'] is not None:
                 # Create inputs_with_ground_truth: concatenate no_icl input with ground truth

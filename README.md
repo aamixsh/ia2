@@ -1,50 +1,53 @@
-# IA2: ICL Activation Alignment
+# IA2: ICL Activation Alignment (ICLR 2026, Rio)
 
-A comprehensive framework for training and evaluating neural networks using the IA2 (ICL Activation Alignment) method and related approaches for improving in-context learning performance.
+This repository contains the code for the paper "IA2: Alignment with ICL activations improves SFT", a comprehensive framework for training and evaluating neural networks using the IA2 (ICL Activation Alignment) method and related approaches for improving in-context learning performance.
 
 ## 🌟 Overview
 
-This project implements and compares the IA2 method and related training approaches with multiple adapter methods:
+This project implements and compares the IA2 method and related training approaches. **Training variants** (objectives) are available with multiple **adapter types**: LoRA, IA3, Prompt Tuning, and Prefix Tuning. Use `{adapter}-{variant}` for non-LoRA adapters (e.g. `ia3-tok`, `prompt-act`); LoRA uses the variant name only (e.g. `tok`, `act`).
 
-**LoRA Methods:**
-- **`tok`** (SFT): Supervised Fine-Tuning - Traditional cross-entropy loss training on ground truth or ICL output tokens
-- **`act`** (IA2): ICL Activation Alignment - MSE loss training to imitate ICL activations  
-- **`a2t`** (IA2 → SFT): Sequential training from IA2 to SFT
-- **`tna`** (IA2 + SFT): Combined IA2 and SFT training with both MSE and cross-entropy losses
+**Training variants (same names across adapters):**
 
-**IA3 Methods:**
-- **`ia3-tok`**: IA3-based SFT training
-- **`ia3-act`**: IA3-based IA2 training
-- **`ia3-a2t`**: IA3-based sequential IA2 → SFT training
-- **`ia3-tna`**: IA3-based combined IA2 + SFT training
+| Variant | Description |
+|---------|-------------|
+| **`tok`** | SFT: Supervised Fine-Tuning with cross-entropy on ground truth or ICL output tokens |
+| **`tokl`** | Soft-label SFT: Match ICL output *distributions* (soft labels) via KL/CE instead of hard token labels |
+| **`act`** | IA2: ICL Activation Alignment — MSE loss to imitate ICL activations |
+| **`tna`** | IA2 + SFT: Combined MSE and CE loss training |
+| **`a2t`** | Sequential: IA2 → SFT |
+| **`t2a`** | Sequential: SFT → IA2 |
 
-**Prompt Tuning Methods:**
-- **`prompt-tok`**: Prompt Tuning-based SFT training
-- **`prompt-act`**: Prompt Tuning-based IA2 training
-- **`prompt-a2t`**: Prompt Tuning-based sequential training
-- **`prompt-tna`**: Prompt Tuning-based combined training
-
-**Prefix Tuning Methods:**
-- **`prefix-tok`**: Prefix Tuning-based SFT training
-- **`prefix-act`**: Prefix Tuning-based IA2 training
-- **`prefix-a2t`**: Prefix Tuning-based sequential training
-- **`prefix-tna`**: Prefix Tuning-based combined training
+**Adapter types:** LoRA (`tok`, `act`, …), IA3 (`ia3-tok`, `ia3-tokl`, `ia3-act`, …), Prompt Tuning (`prompt-tok`, `prompt-tokl`, `prompt-act`, …), Prefix Tuning (`prefix-tok`, `prefix-tokl`, `prefix-act`, …). Each adapter type may require extra args (e.g. `--ia3_type`, `--num_virtual_tokens`).
 
 The system also supports **base model evaluation** for direct comparison without any adapter training.
 
 ## 📁 Project Structure
 
+All scripts live in the `scripts/` directory. Run commands from the project root (e.g. `python scripts/train_unified.py ...`) or from inside `scripts/` (e.g. `python train_unified.py ...`).
+
 ```
 scripts/
-├── train_unified.py              # 🚀 Unified training script (all methods)
-├── train_all_unified.py          # 🔥 Batch training script
-├── evaluate_batch_optimized.py   # 📊 Optimized batch evaluation script
-├── plot_unified.py              # 📉 Unified plotting script
-├── plot_all_unified.py          # 🎨 Batch plotting script
-├── data.py                      # 📦 Dataset utilities
-├── utils.py                     # 🛠️  Common utilities
-├── subspace_overlap_analysis.py # 🔍 Subspace overlap analysis
-└── activation_similarity_analysis.py # 📊 Activation similarity analysis
+├── train_unified.py                      # 🚀 Unified training script (all methods)
+├── train_all_unified.py                  # 🔥 Batch training script
+├── evaluate_batch_optimized.py           # 📊 Optimized batch evaluation script
+├── plot_unified.py                       # 📉 Unified plotting script
+├── plot_all_unified.py                   # 🎨 Batch plotting script
+├── plot_activation_similarity_vs_performance.py  # 📈 Activation similarity vs performance
+├── plot_base_methods_comparison.py       # 📊 Base methods comparison
+├── plot_subspace_overlap_overall.py      # 🔍 Subspace overlap overall
+├── data.py                               # 📦 Dataset utilities
+├── utils.py                              # 🛠️ Common utilities
+├── remap_utils.py                        # 🗺️ Dataset remap utilities
+├── prepare_data.py                       # 📥 Raw data preparation
+├── create_training_datasets.py           # 📦 Single-dataset training set creation
+├── create_all_training_datasets.py       # 📦 Batch training set creation
+├── discover_all_results.py               # 🔎 Discover and aggregate results
+├── reparse_evaluations.py                # 🔄 Re-parse evaluation outputs
+├── run_table_generator.py                # 📋 Table generation runner
+├── run.py                                # ▶️ Generic run entrypoint
+├── generate_latex_tables.py               # 📄 LaTeX table generation
+├── subspace_overlap_analysis.py          # 🔍 Subspace overlap analysis
+└── activation_similarity_analysis.py     # 📊 Activation similarity analysis
 ```
 
 ## 🚀 Quick Start
@@ -111,92 +114,59 @@ python prepare_data.py --dataset agnews --num_train_samples 2000 --num_val_sampl
 
 ### 2. Training Models
 
-**SFT (Supervised Fine-Tuning):**
+All methods use `train_unified.py` with `--training_method <method>`. **LoRA** is the default adapter; for IA3, Prompt Tuning, or Prefix Tuning use the same variant with the prefix (e.g. `ia3-tok`, `prompt-act`) and add adapter-specific args: `--ia3_type` (IA3), `--num_virtual_tokens` (Prompt/Prefix).
+
+**LoRA examples (core variants):**
 ```bash
+# SFT (hard labels: ground_truth or icl_outputs)
 python train_unified.py --training_method tok --dataset gsm8k --label_type icl_outputs --lora_type qkv --lora_r 8 --lora_alpha 8 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
-```
 
-**IA2 (ICL Activation Alignment):**
-```bash
+# Soft-label SFT (tokl): match ICL output distributions; requires label_type=icl_outputs, optional --tokl_top_k
+python train_unified.py --training_method tokl --dataset gsm8k --lora_type qkv --lora_r 8 --lora_alpha 8 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0 --tokl_top_k all
+
+# IA2 (activation alignment)
 python train_unified.py --training_method act --dataset gsm8k --lora_type qkv --lora_r 8 --lora_alpha 8 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
-```
 
-**IA2 + SFT (Combined training):**
-```bash
+# IA2 + SFT combined
 python train_unified.py --training_method tna --dataset gsm8k --lora_type qkv --lora_r 8 --lora_alpha 8 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0 --ce_loss_weight 0.002
-```
 
-**Sequential training (IA2 → SFT):**
-```bash
-# First train IA2 model
+# Sequential IA2 → SFT: train act first, then a2t (loads the act checkpoint automatically)
 python train_unified.py --training_method act --dataset gsm8k --lora_type qkv --lora_r 8 --lora_alpha 8 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
-
-# Then train SFT model (sequential training is handled automatically)
 python train_unified.py --training_method a2t --dataset gsm8k --label_type icl_outputs --lora_type qkv --lora_r 8 --lora_alpha 8 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
 ```
 
-**IA3 Methods:**
-```bash
-# IA3-based SFT training
-python train_unified.py --training_method ia3-tok --dataset gsm8k --label_type icl_outputs --ia3_type qkv --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
-
-# IA3-based IA2 training
-python train_unified.py --training_method ia3-act --dataset gsm8k --ia3_type qkv --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
-
-# IA3-based combined training
-python train_unified.py --training_method ia3-tna --dataset gsm8k --ia3_type qkv --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0 --ce_loss_weight 0.002
-```
-
-**Prompt Tuning Methods:**
-```bash
-# Prompt Tuning-based SFT training
-python train_unified.py --training_method prompt-tok --dataset gsm8k --label_type icl_outputs --num_virtual_tokens 20 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
-
-# Prompt Tuning-based IA2 training
-python train_unified.py --training_method prompt-act --dataset gsm8k --num_virtual_tokens 20 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
-```
-
-**Prefix Tuning Methods:**
-```bash
-# Prefix Tuning-based SFT training
-python train_unified.py --training_method prefix-tok --dataset gsm8k --label_type icl_outputs --num_virtual_tokens 20 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
-
-# Prefix Tuning-based IA2 training
-python train_unified.py --training_method prefix-act --dataset gsm8k --num_virtual_tokens 20 --num_generated_tokens 1 --num_train_examples 100 --lr 1e-4 --run_idx 0
-```
+**Other adapters:** Use the same variant with the adapter prefix and the appropriate flag:
+- **IA3:** `--training_method ia3-tok` (or `ia3-tokl`, `ia3-act`, etc.) and `--ia3_type qkv`
+- **Prompt Tuning:** `--training_method prompt-tok` (or `prompt-tokl`, `prompt-act`, etc.) and `--num_virtual_tokens 20`
+- **Prefix Tuning:** `--training_method prefix-tok` (or `prefix-tokl`, `prefix-act`, etc.) and `--num_virtual_tokens 20`
 
 **Batch training:**
 ```bash
-# Train all LoRA methods
-python train_all_unified.py --training_methods tok act tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0
-
-# Train all IA3 methods
-python train_all_unified.py --training_methods ia3-tok ia3-act ia3-tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0 --ia3_types qkv
-
-# Train all Prompt Tuning methods
-python train_all_unified.py --training_methods prompt-tok prompt-act prompt-tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0 --num_virtual_tokens 20
-
-# Train all Prefix Tuning methods
-python train_all_unified.py --training_methods prefix-tok prefix-act prefix-tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0 --num_virtual_tokens 20
-
-# Include sequential training with dependency validation
+# LoRA: multiple methods and optional sequential
+python train_all_unified.py --training_methods tok tokl act tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0
 python train_all_unified.py --training_methods tok act --include_sequential --sequential_first --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0
 
-# Hyperparameter sweep across all methods
-python train_all_unified.py --training_methods tok act tna ia3-tok ia3-act ia3-tna --datasets gsm8k --num_train_examples 100 200 --lrs 1e-4 5e-4 1e-3 --run_indices 0 1 2 --max_parallel 4
+# Other adapters: same --training_methods pattern with adapter-specific args
+python train_all_unified.py --training_methods ia3-tok ia3-act ia3-tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0 --ia3_types qkv
+python train_all_unified.py --training_methods prompt-tok prompt-act prompt-tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0 --num_virtual_tokens 20
+python train_all_unified.py --training_methods prefix-tok prefix-act prefix-tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0 --num_virtual_tokens 20
+
+# Hyperparameter sweep
+python train_all_unified.py --training_methods tok tokl act tna --datasets gsm8k --num_train_examples 100 200 --lrs 1e-4 5e-4 1e-3 --run_indices 0 1 2 --max_parallel 4
+```
 
 ### 3. Evaluating Models
 
 **Batch evaluation (recommended):**
 ```bash
-# Evaluate all model types
-python evaluate_batch_optimized.py --model_types tok act tna base --trained_datasets gsm8k --eval_datasets gsm8k --icl_source_datasets gsm8k --icl_max_demos 5
+# Evaluate all model types (include tokl for soft-label SFT)
+python evaluate_batch_optimized.py --model_types tok tokl act tna base --trained_datasets gsm8k --eval_datasets gsm8k --icl_source_datasets gsm8k --icl_max_demos 5
 
-# Filter specific configurations
-python evaluate_batch_optimized.py --model_types tok --lora_types qkv --num_examples 100 --lrs 1e-4 --run_indices 0 --uncertainty_analysis
+# Filter specific configurations (e.g. tokl with --tokl_top_k for specific runs)
+python evaluate_batch_optimized.py --model_types tok tokl --lora_types qkv --num_examples 100 --lrs 1e-4 --run_indices 0 --uncertainty_analysis
 
 # Uncertainty analysis
-python evaluate_batch_optimized.py --model_types tok act tna base --trained_datasets gsm8k --eval_datasets gsm8k --icl_source_datasets gsm8k --icl_max_demos 5 --uncertainty_analysis
+python evaluate_batch_optimized.py --model_types tok tokl act tna base --trained_datasets gsm8k --eval_datasets gsm8k --icl_source_datasets gsm8k --icl_max_demos 5 --uncertainty_analysis
 ```
 
 ### 4. Generating Plots
@@ -220,51 +190,32 @@ python plot_all_unified.py --trained_datasets gsm8k --eval_datasets gsm8k --icl_
 
 ### Training Methods
 
-| Method | Description | Required Arguments | Output Directory |
-|--------|-------------|-------------------|------------------|
-| **LoRA Methods** | | | |
-| `tok` | SFT: Supervised Fine-Tuning with CE loss | `--label_type` | `../outputs/tok/{dataset}/` |
-| `act` | IA2: ICL Activation Alignment with MSE loss | None | `../outputs/act/{dataset}/` |  
-| `tna` | IA2 + SFT: Combined MSE + CE loss training | `--ce_loss_weight` | `../outputs/tna/{dataset}/` |
-| `a2t` | Sequential: IA2 → SFT | None | `../outputs/a2t/{dataset}/` |
-| `t2a` | Sequential: SFT → IA2 | None | `../outputs/t2a/{dataset}/` |
-| **IA3 Methods** | | | |
-| `ia3-tok` | IA3-based SFT training | `--label_type`, `--ia3_type` | `../outputs/ia3-tok/{dataset}/` |
-| `ia3-act` | IA3-based IA2 training | `--ia3_type` | `../outputs/ia3-act/{dataset}/` |
-| `ia3-tna` | IA3-based combined training | `--ia3_type`, `--ce_loss_weight` | `../outputs/ia3-tna/{dataset}/` |
-| `ia3-a2t` | IA3-based sequential IA2 → SFT | `--ia3_type`, `--label_type` | `../outputs/ia3-a2t/{dataset}/` |
-| `ia3-t2a` | IA3-based sequential SFT → IA2 | `--ia3_type` | `../outputs/ia3-t2a/{dataset}/` |
-| **Prompt Tuning Methods** | | | |
-| `prompt-tok` | Prompt Tuning-based SFT | `--label_type`, `--num_virtual_tokens` | `../outputs/prompt-tok/{dataset}/` |
-| `prompt-act` | Prompt Tuning-based IA2 | `--num_virtual_tokens` | `../outputs/prompt-act/{dataset}/` |
-| `prompt-tna` | Prompt Tuning-based combined | `--num_virtual_tokens`, `--ce_loss_weight` | `../outputs/prompt-tna/{dataset}/` |
-| `prompt-a2t` | Prompt Tuning-based sequential | `--num_virtual_tokens`, `--label_type` | `../outputs/prompt-a2t/{dataset}/` |
-| `prompt-t2a` | Prompt Tuning-based sequential | `--num_virtual_tokens` | `../outputs/prompt-t2a/{dataset}/` |
-| **Prefix Tuning Methods** | | | |
-| `prefix-tok` | Prefix Tuning-based SFT | `--label_type`, `--num_virtual_tokens` | `../outputs/prefix-tok/{dataset}/` |
-| `prefix-act` | Prefix Tuning-based IA2 | `--num_virtual_tokens` | `../outputs/prefix-act/{dataset}/` |
-| `prefix-tna` | Prefix Tuning-based combined | `--num_virtual_tokens`, `--ce_loss_weight` | `../outputs/prefix-tna/{dataset}/` |
-| `prefix-a2t` | Prefix Tuning-based sequential | `--num_virtual_tokens`, `--label_type` | `../outputs/prefix-a2t/{dataset}/` |
-| `prefix-t2a` | Prefix Tuning-based sequential | `--num_virtual_tokens` | `../outputs/prefix-t2a/{dataset}/` |
+Methods follow the pattern `{adapter}-{variant}` for IA3/Prompt/Prefix; LoRA uses the variant only. **Variants:** `tok` (SFT), `tokl` (soft-label SFT), `act` (IA2), `tna` (IA2+SFT), `a2t` (IA2→SFT), `t2a` (SFT→IA2).
+
+| Method | Description | Required / notable arguments | Output Directory |
+|--------|-------------|-----------------------------|------------------|
+| **LoRA** | | | |
+| `tok` | SFT: CE on hard labels | `--label_type` | `../outputs/tok/{dataset}/` |
+| `tokl` | Soft-label SFT: match ICL output distributions (KL/CE) | `label_type=icl_outputs` only; optional `--tokl_top_k` | `../outputs/tokl/{dataset}/` |
+| `act` | IA2: MSE on activations | — | `../outputs/act/{dataset}/` |
+| `tna` | IA2 + SFT combined | `--ce_loss_weight` | `../outputs/tna/{dataset}/` |
+| `a2t` | Sequential IA2 → SFT | `--label_type` for SFT phase | `../outputs/a2t/{dataset}/` |
+| `t2a` | Sequential SFT → IA2 | — | `../outputs/t2a/{dataset}/` |
+| **IA3** | Same variants with `ia3-` prefix | `--ia3_type` for all | `../outputs/ia3-{variant}/{dataset}/` |
+| **Prompt Tuning** | Same variants with `prompt-` prefix | `--num_virtual_tokens` for all | `../outputs/prompt-{variant}/{dataset}/` |
+| **Prefix Tuning** | Same variants with `prefix-` prefix | `--num_virtual_tokens` for all | `../outputs/prefix-{variant}/{dataset}/` |
 
 ### Model Naming Convention
 
-**SFT models (`tok`):**
-```
-{model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}_{label_type}
-```
+**SFT models (`tok`):** `{model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}_{label_type}`  
 Example: `Qwen3-4B-Base_qkv_8_8_1_100_0.0001_0_icl_outputs`
 
-**IA2 models (`act`):**
-```
-{model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}
-```
+**Soft-label SFT (`tokl`):** Same as tok plus optional `_topk{K}` when `--tokl_top_k` is set (e.g. `..._icl_outputs_topk5`).
+
+**IA2 models (`act`):** `{model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}`  
 Example: `Qwen3-4B-Base_qkv_8_8_1_100_0.0001_0`
 
-**IA2 + SFT models (`tna`):**
-```
-{model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}_{ce_weight}
-```
+**IA2 + SFT models (`tna`):** `{model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}_{ce_weight}`  
 Example: `Qwen3-4B-Base_qkv_8_8_1_100_0.0001_0_0.002`
 
 ### Evaluation Modes
@@ -283,6 +234,7 @@ Example: `Qwen3-4B-Base_qkv_8_8_1_100_0.0001_0_0.002`
 ```
 outputs/
 ├── tok/{dataset}/                    # SFT training models
+├── tokl/{dataset}/                   # Soft-label SFT training models
 ├── act/{dataset}/                    # IA2 training models  
 ├── tna/{dataset}/                    # IA2 + SFT training models
 ├── a2t/{dataset}/                    # Sequential IA2 → SFT models
@@ -290,10 +242,12 @@ outputs/
 └── evaluations/
     ├── base/                         # Base model evaluations
     ├── tok/{dataset}/                # SFT model evaluations
+    ├── tokl/{dataset}/               # Soft-label SFT model evaluations
     ├── act/{dataset}/                # IA2 model evaluations
     ├── tna/{dataset}/                # IA2 + SFT model evaluations
     ├── base_uncertainty/             # Base model uncertainty evaluations
     ├── tok_uncertainty/{dataset}/    # SFT model uncertainty evaluations
+    ├── tokl_uncertainty/{dataset}/   # Soft-label SFT uncertainty evaluations
     ├── act_uncertainty/{dataset}/    # IA2 model uncertainty evaluations
     └── tna_uncertainty/{dataset}/    # IA2 + SFT model uncertainty evaluations
 
@@ -313,7 +267,7 @@ plots/
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
-| `--training_method` | str | Required | Training method: `tok`, `act`, `tna` |
+| `--training_method` | str | Required | Training method: `tok`, `tokl`, `act`, `tna`, etc. (see Overview) |
 | `--dataset` | str | `gsm8k` | Training dataset |
 | `--model_id` | str | `Qwen/Qwen3-4B-Base` | Base model |
 | `--lora_type` | str | `qkv` | LoRA target modules |
@@ -326,31 +280,21 @@ plots/
 
 ### Method-Specific Arguments
 
-**LoRA Methods:**
-- **SFT Training (`tok`)**: `--label_type`: `ground_truth` or `icl_outputs`
-- **IA2 + SFT Training (`tna`)**: `--ce_loss_weight`: Weight for cross-entropy loss (0-1)
-- **Sequential Training**: Sequential training is handled automatically when using `a2t` or `t2a` methods
+**By variant (all adapter types):**
+- **SFT (`tok`)**: `--label_type`: `ground_truth` or `icl_outputs`
+- **Soft-label SFT (`tokl`)**: Uses ICL output distributions only (`label_type` fixed to `icl_outputs`). `--tokl_top_k`: top-K logits to store (`all` or integer, default `all`)
+- **IA2 + SFT (`tna`)**: `--ce_loss_weight`: weight for CE loss (0–1)
+- **Sequential (`a2t` / `t2a`)**: Handled automatically; `a2t` needs `--label_type` for the SFT phase
 
-**IA3 Methods:**
-- **All IA3 methods**: `--ia3_type`: IA3 configuration type (e.g., `qkv`, `qko`, `qkvo`)
-- **IA3 SFT methods**: `--label_type`: `ground_truth` or `icl_outputs`
-- **IA3 combined methods**: `--ce_loss_weight`: Weight for cross-entropy loss (0-1)
-
-**Prompt Tuning Methods:**
-- **All Prompt Tuning methods**: `--num_virtual_tokens`: Number of virtual tokens (default: 20)
-- **Prompt Tuning SFT methods**: `--label_type`: `ground_truth` or `icl_outputs`
-- **Prompt Tuning combined methods**: `--ce_loss_weight`: Weight for cross-entropy loss (0-1)
-
-**Prefix Tuning Methods:**
-- **All Prefix Tuning methods**: `--num_virtual_tokens`: Number of virtual tokens (default: 20)
-- **Prefix Tuning SFT methods**: `--label_type`: `ground_truth` or `icl_outputs`
-- **Prefix Tuning combined methods**: `--ce_loss_weight`: Weight for cross-entropy loss (0-1)
+**By adapter type:**
+- **IA3** (`ia3-*`): `--ia3_type` (e.g. `qkv`, `qko`, `qkvo`)
+- **Prompt / Prefix** (`prompt-*`, `prefix-*`): `--num_virtual_tokens` (default: 20)
 
 ### Evaluation Arguments
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
-| `--model_type` | str | Required | Model type: `tok`, `act`, `tna`, `base` |
+| `--model_type` | str | Required | Model type: `tok`, `tokl`, `act`, `tna`, `base`, or adapter-prefixed (e.g. `ia3-tok`, `prompt-tokl`) |
 | `--eval_dataset_name` | str | Required | Evaluation dataset |
 | `--icl_source_dataset` | str | Required | ICL demonstration source |
 | `--icl_max_demos` | int | Required | Number of ICL demonstrations |
@@ -364,28 +308,29 @@ plots/
 
 **Option 1: Individual Training**
 ```bash
-# 1. Train models individually
+# 1. Train models individually (tok, tokl, act, tna)
 python train_unified.py --training_method tok --dataset gsm8k --label_type icl_outputs --num_train_examples 100 --lr 1e-4 --run_idx 0
+python train_unified.py --training_method tokl --dataset gsm8k --num_train_examples 100 --lr 1e-4 --run_idx 0
 python train_unified.py --training_method act --dataset gsm8k --num_train_examples 100 --lr 1e-4 --run_idx 0
 python train_unified.py --training_method tna --dataset gsm8k --num_train_examples 100 --lr 1e-4 --run_idx 0 --ce_loss_weight 0.002
 
 # 2. Evaluate models
-python evaluate_batch_optimized.py --model_types base tok act tna --trained_datasets gsm8k --eval_datasets gsm8k --icl_source_datasets gsm8k --icl_max_demos 5
+python evaluate_batch_optimized.py --model_types base tok tokl act tna --trained_datasets gsm8k --eval_datasets gsm8k --icl_source_datasets gsm8k --icl_max_demos 5
 
 # 3. Generate plots  
-python plot_unified.py --trained_dataset gsm8k --eval_dataset gsm8k --icl_source_dataset gsm8k --icl_max_demos 5 --model_types base tok act tna
+python plot_unified.py --trained_dataset gsm8k --eval_dataset gsm8k --icl_source_dataset gsm8k --icl_max_demos 5 --model_types base tok tokl act tna
 ```
 
 **Option 2: Batch Training (Recommended)**
 ```bash
 # 1. Batch train all models with parallel processing
-python train_all_unified.py --training_methods tok act tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0 --max_parallel 3
+python train_all_unified.py --training_methods tok tokl act tna --datasets gsm8k --num_train_examples 100 --lrs 1e-4 --run_indices 0 --max_parallel 3
 
 # 2. Batch evaluate all models
-python evaluate_batch_optimized.py --model_types base tok act tna --trained_datasets gsm8k --eval_datasets gsm8k --icl_source_datasets gsm8k --icl_max_demos 5
+python evaluate_batch_optimized.py --model_types base tok tokl act tna --trained_datasets gsm8k --eval_datasets gsm8k --icl_source_datasets gsm8k --icl_max_demos 5
 
 # 3. Generate plots
-python plot_unified.py --trained_dataset gsm8k --eval_dataset gsm8k --icl_source_dataset gsm8k --icl_max_demos 5 --model_types base tok act tna
+python plot_unified.py --trained_dataset gsm8k --eval_dataset gsm8k --icl_source_dataset gsm8k --icl_max_demos 5 --model_types base tok tokl act tna
 ```
 
 ### Sequential Training Workflow
@@ -405,7 +350,7 @@ python evaluate_batch_optimized.py --model_types a2t --trained_datasets gsm8k --
 
 ```bash
 # 1. Evaluate with uncertainty analysis
-python evaluate_batch_optimized.py --model_types base tok act tna --uncertainty_analysis
+python evaluate_batch_optimized.py --model_types base tok tokl act tna --uncertainty_analysis
 
 # 2. Generate uncertainty plots
 python plot_unified.py --trained_dataset gsm8k --eval_dataset gsm8k --icl_source_dataset gsm8k --icl_max_demos 5 --uncertainty_mode --plot_types all
@@ -416,7 +361,7 @@ python plot_unified.py --trained_dataset gsm8k --eval_dataset gsm8k --icl_source
 ```bash
 # 1. Comprehensive hyperparameter sweep across methods
 python train_all_unified.py \
-    --training_methods tok act tna \
+    --training_methods tok tokl act tna \
     --datasets gsm8k \
     --num_train_examples 50 100 200 \
     --lrs 5e-5 1e-4 5e-4 1e-3 \
@@ -427,7 +372,7 @@ python train_all_unified.py \
 
 # 2. Evaluate all trained models
 python evaluate_batch_optimized.py \
-    --model_types tok act tna \
+    --model_types tok tokl act tna \
     --trained_datasets gsm8k \
     --eval_datasets gsm8k \
     --icl_source_datasets gsm8k \
@@ -439,7 +384,7 @@ python plot_unified.py \
     --eval_dataset gsm8k \
     --icl_source_dataset gsm8k \
     --icl_max_demos 5 \
-    --model_types tok act tna
+    --model_types tok tokl act tna
 ```
 
 ## 🎯 Key Features
@@ -507,12 +452,13 @@ ls ../plots/unified/gsm8k/
 
 The unified system enables direct comparison between:
 - **Base Model**: Pretrained model performance with ICL
-- **SFT**: Traditional supervised fine-tuning approach
-- **IA2**: ICL Activation Alignment for ICL behavior imitation
-- **IA2 + SFT**: Combined approach leveraging both methods
-- **Sequential Training**: Progressive improvement strategies
+- **SFT (`tok`)**: Traditional supervised fine-tuning on hard labels
+- **Soft-label SFT (`tokl`)**: Matching ICL output distributions (soft labels) instead of single-token targets
+- **IA2 (`act`)**: ICL Activation Alignment for ICL behavior imitation
+- **IA2 + SFT (`tna`)**: Combined approach leveraging both methods
+- **Sequential Training**: Progressive improvement (e.g. `a2t`: IA2 → SFT)
 
-Typical performance ordering: `base < tok < act ≈ tna` with sequential training often achieving the best results.
+Typical performance ordering: `base < tok ≲ tokl < act ≈ tna` with sequential training often achieving strong results.
 
 ## 🔬 About IA2
 
@@ -528,7 +474,7 @@ The method is particularly effective when combined with supervised fine-tuning (
 ## 🤝 Contributing
 
 When adding new features:
-1. Follow the unified naming conventions (`tok`/`act`/`tna`)
+1. Follow the unified naming conventions (`tok`/`tokl`/`act`/`tna` and adapter-prefixed variants)
 2. Ensure compatibility with existing directory structures
 3. Add appropriate argument validation and error handling
 4. Update this README with new functionality

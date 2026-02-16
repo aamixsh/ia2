@@ -3,7 +3,7 @@
 Unified Batch Training Script for Distillation Project
 
 This script runs training across multiple configurations using the unified training script.
-Supports all training methods: tok, act, tna, and sequential training (a2t, t2a).
+Supports all training methods: tok, act, tna, tokl, a2t, t2a, prompt, prefix, and ldr.
 """
 
 import os
@@ -25,12 +25,12 @@ def run_single_training(args_tuple):
         base_method = 'lora'
         training_variant = args_tuple[0]
 
-    if len(args_tuple) == 27:  # LoRA + IA3 method
+    if len(args_tuple) == 28:  # LoRA + IA3 method (+ tokl_top_k)
         (training_method, dataset, model_id, lora_type, lora_r, lora_alpha,
          num_generated_tokens, num_train_examples, lr, label_type, ce_loss_weight,
          gpu_id, num_runs, wandb_log, wandb_project, wandb_entity, num_train_epochs, batch_size,
          gradient_clip_val, patience, dev_eval_steps, log_gradient_norms,
-         log_checkpoints, checkpoint_frequency, shuffle_demos, num_shuffles, output_dir) = args_tuple
+         log_checkpoints, checkpoint_frequency, shuffle_demos, num_shuffles, output_dir, tokl_top_k) = args_tuple
         if base_method == 'ia3':
             ia3_type = lora_type
             lora_type = None
@@ -42,38 +42,38 @@ def run_single_training(args_tuple):
         num_labelled_samples = None
         num_unlabelled_samples = None
         max_permutations = None
-    elif len(args_tuple) == 28:  # Prompt/Prefix methods
+    elif len(args_tuple) == 29:  # Prompt/Prefix methods (+ tokl_top_k)
         (training_method, dataset, model_id, lora_type, lora_r, lora_alpha,
          num_generated_tokens, num_train_examples, lr, label_type, ce_loss_weight,
          gpu_id, num_runs, wandb_log, wandb_project, wandb_entity, num_train_epochs, batch_size,
          gradient_clip_val, patience, dev_eval_steps, log_gradient_norms,
-         log_checkpoints, checkpoint_frequency, shuffle_demos, num_shuffles, num_virtual_tokens, output_dir) = args_tuple
+         log_checkpoints, checkpoint_frequency, shuffle_demos, num_shuffles, num_virtual_tokens, output_dir, tokl_top_k) = args_tuple
         ia3_type = None
         # LDR parameters (not provided in this tuple format)
         ldr_mode = False
         num_labelled_samples = None
         num_unlabelled_samples = None
         max_permutations = None
-    elif len(args_tuple) == 31:  # LDR mode Lora + IA3
+    elif len(args_tuple) == 32:  # LDR mode Lora + IA3 (+ tokl_top_k)
         (training_method, dataset, model_id, lora_type, lora_r, lora_alpha,
          num_generated_tokens, num_train_examples, lr, label_type, ce_loss_weight,
          gpu_id, num_runs, wandb_log, wandb_project, wandb_entity, num_train_epochs, batch_size,
          gradient_clip_val, patience, dev_eval_steps, log_gradient_norms,
          log_checkpoints, checkpoint_frequency, shuffle_demos, num_shuffles, output_dir,
-         ldr_mode, num_labelled_samples, num_unlabelled_samples, max_permutations) = args_tuple
+         ldr_mode, num_labelled_samples, num_unlabelled_samples, max_permutations, tokl_top_k) = args_tuple
         if base_method == 'ia3':
             ia3_type = lora_type
             lora_type = None
         else:
             ia3_type = None
         num_virtual_tokens = None
-    elif len(args_tuple) == 32:  # LDR mode Prompt/Prefix
+    elif len(args_tuple) == 33:  # LDR mode Prompt/Prefix (+ tokl_top_k)
         (training_method, dataset, model_id, lora_type, lora_r, lora_alpha,
          num_generated_tokens, num_train_examples, lr, label_type, ce_loss_weight,
          gpu_id, num_runs, wandb_log, wandb_project, wandb_entity, num_train_epochs, batch_size,
          gradient_clip_val, patience, dev_eval_steps, log_gradient_norms,
          log_checkpoints, checkpoint_frequency, shuffle_demos, num_shuffles, num_virtual_tokens, output_dir,
-         ldr_mode, num_labelled_samples, num_unlabelled_samples, max_permutations) = args_tuple
+         ldr_mode, num_labelled_samples, num_unlabelled_samples, max_permutations, tokl_top_k) = args_tuple
         ia3_type = None
     else:
         raise ValueError(f"Unexpected tuple length: {len(args_tuple)}")
@@ -102,8 +102,10 @@ def run_single_training(args_tuple):
     elif base_method in ['prompt', 'prefix']:
         cmd.extend(['--num_virtual_tokens', str(num_virtual_tokens)])
     
-    if training_variant in ['tok', 'a2t'] and label_type:
+    if training_variant in ['tok', 'a2t', 'tokl'] and label_type:
         cmd.extend(['--label_type', str(label_type)])
+    if training_variant == 'tokl':
+        cmd.extend(['--tokl_top_k', str(tokl_top_k)])
     
     if training_variant == 'tna' and ce_loss_weight is not None:
         cmd.extend(['--ce_loss_weight', str(ce_loss_weight)])
@@ -228,7 +230,7 @@ def generate_experiments(args):
                 for num_examples in args.num_train_examples:
                     for lr in args.lrs:
                         # Handle different parameter sets based on training method
-                        if base_method in ['lora'] or training_method in ['tok', 'act', 'tna', 'a2t', 't2a']:
+                        if base_method in ['lora'] or training_method in ['tok', 'tokl', 'act', 'tna', 'a2t', 't2a']:
                             # LoRA methods (keep unchanged)
                             for lora_type in args.lora_types:
                                 for lora_r in args.lora_rs:
@@ -236,6 +238,9 @@ def generate_experiments(args):
                                         # Determine relevant label_types and ce_loss_weights for this method
                                         if training_variant in ['tok', 'a2t']:
                                             label_types_to_use = args.label_types
+                                            ce_weights_to_use = [None]
+                                        elif training_variant in ['tokl']:
+                                            label_types_to_use = ['icl_outputs']
                                             ce_weights_to_use = [None]
                                         elif training_variant == 'tna':
                                             label_types_to_use = [None]
@@ -288,6 +293,7 @@ def generate_experiments(args):
                                                                 args.shuffle_demos,     # shuffle_demos
                                                                 args.num_shuffles,       # num_shuffles
                                                                 args.output_dir,         # output_dir
+                                                                args.tokl_top_k,         # tokl_top_k
                                                                 True,                   # ldr_mode
                                                                 num_examples,           # num_labelled_samples == num_train_examples
                                                                 num_unlabelled,         # num_unlabelled_samples
@@ -328,7 +334,8 @@ def generate_experiments(args):
                                                         args.checkpoint_frequency, # checkpoint_frequency
                                                         args.shuffle_demos,     # shuffle_demos
                                                         args.num_shuffles,       # num_shuffles
-                                                        args.output_dir          # output_dir
+                                                        args.output_dir,         # output_dir
+                                                        args.tokl_top_k          # tokl_top_k
                                                     )
                                                     all_experiments.append(experiment)
                         elif base_method == 'ia3':
@@ -337,6 +344,9 @@ def generate_experiments(args):
                                 # Determine relevant label_types and ce_loss_weights for this method
                                 if training_variant in ['tok', 'a2t']:
                                     label_types_to_use = args.label_types
+                                    ce_weights_to_use = [None]
+                                elif training_variant in ['tokl']:
+                                    label_types_to_use = ['icl_outputs']
                                     ce_weights_to_use = [None]
                                 elif training_variant == 'tna':
                                     label_types_to_use = [None]
@@ -391,7 +401,8 @@ def generate_experiments(args):
                                                         True,                   # ldr_mode
                                                         num_examples,           # num_labelled_samples == num_train_examples
                                                         num_unlabelled,         # num_unlabelled_samples
-                                                        max_perm                # max_permutations
+                                                        max_perm,               # max_permutations
+                                                        args.tokl_top_k         # tokl_top_k
                                                     )
                                                     all_experiments.append(experiment)
                                         else:
@@ -428,7 +439,8 @@ def generate_experiments(args):
                                                 args.checkpoint_frequency, # checkpoint_frequency
                                                 args.shuffle_demos,     # shuffle_demos
                                                 args.num_shuffles,      # num_shuffles
-                                                args.output_dir         # output_dir
+                                                args.output_dir,        # output_dir
+                                                args.tokl_top_k         # tokl_top_k
                                             )
                                             all_experiments.append(experiment)
                                         
@@ -438,6 +450,9 @@ def generate_experiments(args):
                                 # Determine relevant label_types and ce_loss_weights for this method
                                 if training_variant in ['tok', 'a2t']:
                                     label_types_to_use = args.label_types
+                                    ce_weights_to_use = [None]
+                                elif training_variant in ['tokl']:
+                                    label_types_to_use = ['icl_outputs']
                                     ce_weights_to_use = [None]
                                 elif training_variant == 'tna':
                                     label_types_to_use = [None]
@@ -493,7 +508,8 @@ def generate_experiments(args):
                                                         True,                   # ldr_mode
                                                         num_examples,           # num_labelled_samples == num_train_examples
                                                         num_unlabelled,         # num_unlabelled_samples
-                                                        max_perm                # max_permutations
+                                                        max_perm,               # max_permutations
+                                                        args.tokl_top_k         # tokl_top_k
                                                     )
                                                     all_experiments.append(experiment)
                                         else:
@@ -531,7 +547,8 @@ def generate_experiments(args):
                                                 args.shuffle_demos,     # shuffle_demos
                                                 args.num_shuffles,      # num_shuffles
                                                 num_virtual_tokens,     # num_virtual_tokens
-                                                args.output_dir         # output_dir
+                                                args.output_dir,        # output_dir
+                                                args.tokl_top_k         # tokl_top_k
                                             )
                                             all_experiments.append(experiment)
                         else:
@@ -546,19 +563,19 @@ def main():
     
     # Training method configuration
     parser.add_argument("--training_methods", nargs='+', 
-                        choices=['tok', 'act', 'tna', 'a2t', 't2a', 
-                                'ia3-tok', 'ia3-act', 'ia3-tna', 'ia3-a2t', 'ia3-t2a',
-                                'prompt-tok', 'prompt-act', 'prompt-tna', 'prompt-a2t', 'prompt-t2a',
-                                'prefix-tok', 'prefix-act', 'prefix-tna', 'prefix-a2t', 'prefix-t2a'],
+                        choices=['tok', 'tokl', 'act', 'tna', 'a2t', 't2a', 
+                                'ia3-tok', 'ia3-tokl', 'ia3-act', 'ia3-tna', 'ia3-a2t', 'ia3-t2a',
+                                'prompt-tok', 'prompt-tokl', 'prompt-act', 'prompt-tna', 'prompt-a2t', 'prompt-t2a',
+                                'prefix-tok', 'prefix-tokl', 'prefix-act', 'prefix-tna', 'prefix-a2t', 'prefix-t2a'],
                         # default=['ia3-tok', 'ia3-act', 'ia3-tna', 'ia3-a2t'],
                         # default=['prefix-tok', 'prefix-act', 'prefix-tna', 'prefix-a2t'],
-                        default=['tok', 'act', 'tna', 'a2t'],
+                        default=['tokl'],
                         help="Training methods to run")
     
     # Dataset and model configuration
-    parser.add_argument("--datasets", nargs='+', default=['gsm8k'],
+    parser.add_argument("--datasets", nargs='+', default=['sst2', 'finsen', 'agnews'],
                         help="Datasets to train on")
-    parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B-Instruct", choices=['meta-llama/Llama-3.2-1B', 'Qwen/Qwen3-4B-Base', 'Qwen/Qwen2.5-1.5B', 'meta-llama/Llama-3.1-8B', 'meta-llama/Llama-3.2-1B-Instruct', 'google/gemma-3-270m'],
+    parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B", choices=['meta-llama/Llama-3.2-1B', 'Qwen/Qwen3-4B-Base', 'Qwen/Qwen2.5-1.5B', 'meta-llama/Llama-3.1-8B', 'meta-llama/Llama-3.2-1B-Instruct', 'google/gemma-3-270m'],
                         help="Base model ID")
     parser.add_argument("--output_dir", type=str, default="../outputs",
                         help="Output directory")
@@ -580,11 +597,11 @@ def main():
                         help="Number of virtual tokens for prompt/prefix tuning")
     
     # Training hyperparameters
-    parser.add_argument("--num_generated_tokens", nargs='+', type=int, default=[200],
+    parser.add_argument("--num_generated_tokens", nargs='+', type=int, default=[1],
                         help="Number of generated tokens")
-    parser.add_argument("--num_train_examples", nargs='+', type=int, default=[4],
+    parser.add_argument("--num_train_examples", nargs='+', type=int, default=[2, 4, 8, 16, 32],
                         help="Number of training examples")
-    # parser.add_argument("--lrs", nargs='+', type=float, default=[1e-4, 3e-4, 5e-4, 1e-3, 3e-3, 5e-3],
+    # parser.add_argument("--lrs", nargs='+', type=float, default=[1e-5, 3e-5],
     parser.add_argument("--lrs", nargs='+', type=float, default=[1e-4, 3e-4, 1e-3],
     # parser.add_argument("--lrs", nargs='+', type=float, default=[1e-3, 5e-3, 1e-2, 5e-2, 1e-1],
     # parser.add_argument("--lrs", nargs='+', type=float, default=[1e-3, 1e-2, 1e-1],
@@ -597,6 +614,8 @@ def main():
                         choices=['ground_truth', 'icl_outputs'],
                         default=['icl_outputs', 'ground_truth'],
                         help="Label types for tok models")
+    parser.add_argument("--tokl_top_k", type=str, default='all',
+                        help="Top-K for tokl probability targets; 'all' to store full logits")
     # parser.add_argument("--ce_loss_weights", nargs='+', type=float, default=[0.1, 0.5, 0.7, 0.9],
     parser.add_argument("--ce_loss_weights", nargs='+', type=float, default=[0.001, 0.01, 0.05, 0.5],
                         help="CE loss weights for tna models")
@@ -646,7 +665,7 @@ def main():
                         help="WandB entity name")
     
     # System configuration
-    parser.add_argument("--max_parallel", type=int, default=3,
+    parser.add_argument("--max_parallel", type=int, default=2,
                         help="Maximum number of parallel training jobs")
     parser.add_argument("--gpus", nargs='+', type=int, default=[3],
                         help="GPU IDs to use")

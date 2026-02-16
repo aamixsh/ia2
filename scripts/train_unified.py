@@ -7,7 +7,7 @@ This script consolidates all training methods:
 2. act: MSE loss training on activations from ICL outputs  
 3. tna: Combined MSE + CE loss training
 4. a2t, t2a: Combined MSE + CE loss training with sequential training from existing adapters
-
+5. tokl: Soft token imitation training
 """
 
 import os
@@ -82,6 +82,71 @@ def collect_icl_outputs(model, dataset, tokenizer, device, num_generated_tokens=
 
     torch.cuda.empty_cache()
     return icl_outputs, icl_outputs_tokenized
+
+
+def collect_icl_distributions(model, dataset, tokenizer, device, num_generated_tokens=1, top_k=100):
+    """Efficiently collect output distributions using generate(output_scores=True).
+
+    If top_k == 'all' (string), stores full logits per step over the entire vocab.
+    Else, stores top-k probabilities and indices per step.
+    Returns:
+      - generated_tokens_all: List[List[int]]
+      - distributions_all: List[List[Union[Dict[str, Tensor], Tensor]]]
+    """
+    model.eval()
+    generated_tokens_all = []
+    distributions_all = []
+
+    with torch.no_grad():
+        generation_config = GenerationConfig(
+            max_new_tokens=num_generated_tokens,
+            pad_token_id=tokenizer.eos_token_id,
+            temperature=0.0,
+            do_sample=False,
+            return_dict_in_generate=True,
+            output_scores=True
+        )
+
+        for _, example in enumerate(tqdm(dataset, desc="Collecting ICL distributions (scores)")):
+            inputs_with_icl = {k: v.to(device) for k, v in example['inputs_with_icl'].items()}
+            decode_position = example['with_icl_decode_position']
+
+            outputs = model.generate(
+                tokenizer=tokenizer,
+                input_ids=inputs_with_icl['input_ids'][:, :decode_position + 1],
+                attention_mask=inputs_with_icl['attention_mask'][:, :decode_position + 1],
+                generation_config=generation_config
+            )
+
+            sequences = outputs.sequences  # [1, seq_len]
+            scores = outputs.scores        # tuple(len = generated steps), each [1, vocab]
+
+            # Extract generated token ids
+            input_length = decode_position + 1
+            gen_tokens = sequences[0, input_length:]
+            gen_list = gen_tokens.detach().cpu().tolist()
+
+            step_distributions = []
+            if isinstance(top_k, str) and top_k == 'all':
+                # Store full logits per step
+                for s in scores:
+                    step_distributions.append(s[0].detach().cpu())  # Tensor[vocab]
+            else:
+                k = min(int(top_k), scores[0].shape[-1]) if len(scores) > 0 else 0
+                for s in scores:
+                    logits = s[0]
+                    probs = F.softmax(logits, dim=-1)
+                    top_probs, top_indices = torch.topk(probs, k=k)
+                    step_distributions.append({
+                        'indices': top_indices.detach().cpu(),
+                        'probs': top_probs.detach().cpu()
+                    })
+
+            generated_tokens_all.append(gen_list)
+            distributions_all.append(step_distributions)
+
+    torch.cuda.empty_cache()
+    return generated_tokens_all, distributions_all
 
 
 def register_attention_hooks(model):
@@ -478,6 +543,67 @@ def compute_loss(training_method, model, example, tokenizer, device,
             'ce_loss': ce_loss,
             'mse_loss': mse_loss
         }
+
+    # Handle soft token imitation (tokl)
+    elif training_method in ["tokl"]:
+        if label_type != 'icl_outputs':
+            raise ValueError("'tokl' only supports label_type='icl_outputs'")
+
+        if 'inputs_with_icl_outputs' not in example:
+            raise ValueError("inputs_with_icl_outputs missing for tokl")
+        if 'icl_distributions' not in example:
+            raise ValueError("icl_distributions missing for tokl")
+
+        inputs = example['inputs_with_icl_outputs']
+        input_ids = inputs['input_ids'].to(device)
+        attention_mask = inputs['attention_mask'].to(device)
+        decode_position = example['no_icl_decode_position']
+
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        logits = outputs.logits  # [1, seq_len, vocab]
+        log_probs = F.log_softmax(logits, dim=-1).squeeze(0)  # [seq_len, vocab]
+
+        vocab_size = log_probs.shape[-1]
+        step_losses = []
+
+        distributions = example['icl_distributions']
+        # Number of generated steps equals provided distributions length
+        for t, dist in enumerate(distributions):
+            pos = decode_position + t
+            if pos >= log_probs.shape[0]:
+                break
+
+            if isinstance(dist, dict):
+                top_indices = dist['indices'].to(device)
+                top_probs = dist['probs'].to(device)
+
+                k = top_indices.shape[0]
+                sum_top = top_probs.sum()
+                remaining = torch.clamp(1.0 - sum_top, min=0.0)
+                denom = max(vocab_size - k, 1)
+                uniform_rest = remaining / denom
+
+                target = torch.full((vocab_size,), uniform_rest, device=device, dtype=log_probs.dtype)
+                target.scatter_(0, top_indices, top_probs)
+                kl = F.kl_div(log_probs[pos], target, reduction='sum')
+                step_losses.append(kl)
+            else:
+                # Full logits provided for target (Tensor[vocab]); convert to probability target directly
+                target_logits = dist.to(device)
+                target_probs = F.softmax(target_logits, dim=-1)
+                kl = F.kl_div(log_probs[pos], target_probs, reduction='sum')
+                step_losses.append(kl)
+
+        if len(step_losses) == 0:
+            total = torch.tensor(0.0, device=device)
+        else:
+            total = torch.stack(step_losses).mean()
+
+        return {
+            'total_loss': total,
+            'ce_loss': total,
+            'mse_loss': torch.tensor(0.0, device=device)
+        }
     
     # Handle pure MSE loss methods (act, t2a)
     elif training_method in ["act", "t2a"]:
@@ -761,10 +887,10 @@ def main():
     
     # Core arguments
     parser.add_argument("--training_method", type=str, default="tok",
-                       choices=["tok", "act", "tna", "a2t", "t2a", 
-                               "ia3-tok", "ia3-act", "ia3-tna", "ia3-a2t", "ia3-t2a",
-                               "prompt-tok", "prompt-act", "prompt-tna", "prompt-a2t", "prompt-t2a",
-                               "prefix-tok", "prefix-act", "prefix-tna", "prefix-a2t", "prefix-t2a"],
+                       choices=["tok", "tokl", "act", "tna", "a2t", "t2a", 
+                               "ia3-tok", "ia3-tokl", "ia3-act", "ia3-tna", "ia3-a2t", "ia3-t2a",
+                               "prompt-tok", "prompt-tokl", "prompt-act", "prompt-tna", "prompt-a2t", "prompt-t2a",
+                               "prefix-tok", "prefix-tokl", "prefix-act", "prefix-tna", "prefix-a2t", "prefix-t2a"],
                        help="Training method to use")
     parser.add_argument("--dataset", type=str, default="sst2")
     parser.add_argument("--model_id", type=str, default="Qwen/Qwen3-4B-Base", 
@@ -789,6 +915,8 @@ def main():
     parser.add_argument("--num_train_examples", type=int, default=4)
     parser.add_argument("--num_generated_tokens", type=int, default=1, 
                        help="Number of tokens for training")
+    parser.add_argument("--tokl_top_k", type=str, default='all',
+                       help="Top-K probabilities to collect for tokl targets; use 'all' to store full logits")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--gradient_clip_val", type=float, default=None, 
@@ -851,6 +979,9 @@ def main():
     # Validate arguments
     if args.training_method == "tna" and not (0 <= args.ce_loss_weight <= 1):
         raise ValueError(f"ce_loss_weight must be between 0 and 1, but got {args.ce_loss_weight}")
+    # Enforce label type for tokl
+    if (args.training_method == 'tokl' or args.training_method.endswith('-tokl')) and args.label_type != 'icl_outputs':
+        raise ValueError("tokl only supports label_type='icl_outputs'")
         
     # Set device and dtype
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
@@ -900,6 +1031,8 @@ def main():
                 run_name += f"_label{args.label_type}"
             if training_variant == "tna":
                 run_name += f"_cew{args.ce_loss_weight}"
+            if training_variant == "tokl":
+                run_name += f"_topk{args.tokl_top_k}"
 
             wandb_run = wandb.init(
                 project=args.wandb_project,
@@ -1003,6 +1136,18 @@ def main():
                 else:
                     train_dataset = ICLDatasetWithOutputs(train_dataset, training_mode='ground_truth')
                     dev_dataset = ICLDatasetWithOutputs(dev_dataset, training_mode='ground_truth')
+            elif training_variant in ["tokl"]:
+                print(f"Collecting ICL top-{args.tokl_top_k} distributions for soft token imitation (using base model)...")
+                train_gen_tokens, train_dists = collect_icl_distributions(
+                    base_model, train_dataset, tokenizer, device,
+                    num_generated_tokens=args.num_generated_tokens, top_k=args.tokl_top_k
+                )
+                dev_gen_tokens, dev_dists = collect_icl_distributions(
+                    base_model, dev_dataset, tokenizer, device,
+                    num_generated_tokens=args.num_generated_tokens, top_k=args.tokl_top_k
+                )
+                train_dataset = ICLDatasetWithOutputs(train_dataset, icl_outputs=train_gen_tokens, training_mode='icl_outputs', icl_distributions=train_dists)
+                dev_dataset = ICLDatasetWithOutputs(dev_dataset, icl_outputs=dev_gen_tokens, training_mode='icl_outputs', icl_distributions=dev_dists)
             elif training_variant in ["act", "tna", "t2a"]:
                 print("Collecting target activations (using base model)...")
                 train_activations = get_activations(
@@ -1032,7 +1177,7 @@ def main():
             print("Loading PEFT model for training...")
             model, is_continued = load_base_or_continue_model(args, device, torch_dtype, run_idx, base_model, base_method, training_variant, output_dir=args.output_dir)
             if not is_continued:
-                if base_method in ["lora"] or args.training_method in ["tok", "act", "tna", "a2t", "t2a"]:
+                if base_method in ["lora"] or args.training_method in ["tok", "tokl", "act", "tna", "a2t", "t2a"]:
                     # Existing LoRA methods (keep unchanged)
                     lora_config = create_lora_config(args.lora_type, args.lora_r, args.lora_alpha)
                     model = get_peft_model(model, lora_config)
@@ -1057,7 +1202,8 @@ def main():
                 args.training_method, model_name, args.lora_type, args.lora_r, 
                 args.lora_alpha, args.num_generated_tokens, args.num_train_examples, 
                 args.lr, run_idx, args.label_type, args.ce_loss_weight, args.ia3_type, args.num_virtual_tokens,
-                args.ldr_mode, args.num_labelled_samples, args.num_unlabelled_samples, args.max_permutations
+                args.ldr_mode, args.num_labelled_samples, args.num_unlabelled_samples, args.max_permutations,
+                args.tokl_top_k if 'tokl' in args.training_method else None
             )
             model_save_path = os.path.join(output_base_dir, model_save_name)
             
@@ -1081,7 +1227,8 @@ def main():
                 'ldr_mode': args.ldr_mode,
                 'num_labelled_samples': args.num_labelled_samples if args.ldr_mode else None,
                 'num_unlabelled_samples': args.num_unlabelled_samples if args.ldr_mode else None,
-                'max_permutations': args.max_permutations if args.ldr_mode else None
+                'max_permutations': args.max_permutations if args.ldr_mode else None,
+                'tokl_top_k': args.tokl_top_k if 'tokl' in args.training_method else None
             }
 
             # Train the model

@@ -45,7 +45,8 @@ def load_evaluation_results(results_path):
 def load_dev_loss_statistics(model_type, trained_dataset, model_id, lora_type, lora_r, lora_alpha, 
                            num_generated_tokens_train, num_train_examples, lr, run_idx, 
                            ce_loss_weight=None, label_type=None, ia3_type=None, num_virtual_tokens=None,
-                           ldr_mode=False, num_labelled_samples=None, num_unlabelled_samples=None, max_permutations=None):
+                           ldr_mode=False, num_labelled_samples=None, num_unlabelled_samples=None, max_permutations=None,
+                           tokl_top_k=None):
     """Load dev loss statistics from adapter directory"""
     model_name_base = model_id.split('/')[-1]
     
@@ -58,27 +59,29 @@ def load_dev_loss_statistics(model_type, trained_dataset, model_id, lora_type, l
 
     
     # Construct adapter path based on model type
-    if base_method == 'lora' or model_type in ['tok', 'act', 'tna', 'a2t', 't2a']:
+    tokl_suffix = f"_topk{tokl_top_k}" if training_variant == 'tokl' and tokl_top_k else ""
+    
+    if base_method == 'lora' or model_type in ['tok', 'act', 'tna', 'a2t', 't2a', 'tokl']:
         base_name = f"../outputs/{training_variant}/{trained_dataset}/{model_name_base}_{lora_type}_{lora_r}_{lora_alpha}_{num_generated_tokens_train}_{num_train_examples}_{lr}_{run_idx}"
         
-        if training_variant in ['tok', 'a2t']:
-            adapter_name = f"{base_name}_{label_type}"
+        if training_variant in ['tok', 'a2t', 'tokl']:
+            adapter_name = f"{base_name}_{label_type}{tokl_suffix}"
         elif training_variant in ['act', 't2a']:
             adapter_name = base_name
         elif training_variant == 'tna':
             adapter_name = f"{base_name}_{ce_loss_weight}"
     elif base_method == 'ia3':
         base_name = f"../outputs/{model_type}/{trained_dataset}/{model_name_base}_ia3_{ia3_type}_{num_generated_tokens_train}_{num_train_examples}_{lr}_{run_idx}"
-        if training_variant in ['tok', 'a2t']:
-            adapter_name = f"{base_name}_{label_type}"
+        if training_variant in ['tok', 'a2t', 'tokl']:
+            adapter_name = f"{base_name}_{label_type}{tokl_suffix}"
         elif training_variant in ['act', 't2a']:
             adapter_name = base_name
         elif training_variant == 'tna':
             adapter_name = f"{base_name}_{ce_loss_weight}"
     elif base_method in ['prompt', 'prefix']:
         base_name = f"../outputs/{model_type}/{trained_dataset}/{model_name_base}_{base_method}_{num_virtual_tokens}_{num_generated_tokens_train}_{num_train_examples}_{lr}_{run_idx}"
-        if training_variant in ['tok', 'a2t']:
-            adapter_name = f"{base_name}_{label_type}"
+        if training_variant in ['tok', 'a2t', 'tokl']:
+            adapter_name = f"{base_name}_{label_type}{tokl_suffix}"
         elif training_variant in ['act', 't2a']:
             adapter_name = base_name
         elif training_variant == 'tna':
@@ -167,7 +170,8 @@ def extract_hyperparameters(result_data):
         'ce_loss_weight': params.get('ce_loss_weight'),
         'run_idx': params.get('run_idx'),
         'ia3_type': params.get('ia3_type'),
-        'num_virtual_tokens': params.get('num_virtual_tokens')
+        'num_virtual_tokens': params.get('num_virtual_tokens'),
+        'tokl_top_k': params.get('tokl_top_k')
     }
 
 
@@ -218,7 +222,8 @@ def find_best_hyperparameters_by_dev_loss(results, model_id, model_type, trained
                 ce_loss_weight=params.get('ce_loss_weight'),
                 label_type=params.get('label_type'),
                 ia3_type=params.get('ia3_type'),
-                num_virtual_tokens=params.get('num_virtual_tokens')
+                num_virtual_tokens=params.get('num_virtual_tokens'),
+                tokl_top_k=params.get('tokl_top_k')
             )
             
             if dev_loss is not None:
@@ -279,15 +284,23 @@ def plot_method_comparison(all_results, output_path, title, ylabel, ylim,
         "lora Token Training": {"color": "blue", "marker": "s", "linestyle": "-", "label": "Token Training (tok)"},
         "ia3 Token Training": {"color": "blue", "marker": "s", "linestyle": "-", "label": "Token Training (tok)"},
         "prefix Token Training": {"color": "blue", "marker": "s", "linestyle": "-", "label": "Token Training (tok)"},
+        "prompt Token Training": {"color": "blue", "marker": "s", "linestyle": "-", "label": "Token Training (tok)"},
+        "lora Token-level Soft Imitation Training": {"color": "orange", "marker": "X", "linestyle": "-", "label": "Token-level Soft Imitation (tokl)"},
+        "ia3 Token-level Soft Imitation Training": {"color": "orange", "marker": "X", "linestyle": "-", "label": "Token-level Soft Imitation (tokl)"},
+        "prefix Token-level Soft Imitation Training": {"color": "orange", "marker": "X", "linestyle": "-", "label": "Token-level Soft Imitation (tokl)"},
+        "prompt Token-level Soft Imitation Training": {"color": "orange", "marker": "X", "linestyle": "-", "label": "Token-level Soft Imitation (tokl)"},
         "lora Activation Training": {"color": "green", "marker": "^", "linestyle": "-", "label": "Activation Training (act)"},
         "ia3 Activation Training": {"color": "green", "marker": "^", "linestyle": "-", "label": "Activation Training (act)"},
         "prefix Activation Training": {"color": "green", "marker": "^", "linestyle": "-", "label": "Activation Training (act)"},
+        "prompt Activation Training": {"color": "green", "marker": "^", "linestyle": "-", "label": "Activation Training (act)"},
         "lora Token + Activation Training": {"color": "red", "marker": "D", "linestyle": "-", "label": "Token + Activation Training (tna)"},
         "ia3 Token + Activation Training": {"color": "red", "marker": "D", "linestyle": "-", "label": "Token + Activation Training (tna)"},
         "prefix Token + Activation Training": {"color": "red", "marker": "D", "linestyle": "-", "label": "Token + Activation Training (tna)"},
+        "prompt Token + Activation Training": {"color": "red", "marker": "D", "linestyle": "-", "label": "Token + Activation Training (tna)"},
         "lora Sequential (act→tok) Training": {"color": "purple", "marker": "v", "linestyle": "-", "label": "Sequential (act→tok)"},
         "ia3 Sequential (act→tok) Training": {"color": "purple", "marker": "v", "linestyle": "-", "label": "Sequential (act→tok)"},
         "prefix Sequential (act→tok) Training": {"color": "purple", "marker": "v", "linestyle": "-", "label": "Sequential (act→tok)"},
+        "prompt Sequential (act→tok) Training": {"color": "purple", "marker": "v", "linestyle": "-", "label": "Sequential (act→tok)"},
         # "Sequential T2A": {"color": "orange", "marker": "<", "linestyle": "-", "label": "Sequential (tok→act)"},
         # "IA3 Training": {"color": "brown", "marker": ">", "linestyle": "-", "label": "IA3 Training"},
         # "Prompt Tuning": {"color": "pink", "marker": "P", "linestyle": "-", "label": "Prompt Tuning"},
@@ -439,7 +452,11 @@ def process_base_model_results(base_dir, eval_dataset, icl_source, icl_demos, un
     without_icl_filename = None
     if without_icl_files:
         # If multiple, pick the first (or you could sort and pick the lowest/highest T)
-        without_icl_filename = os.path.basename(without_icl_files[0])
+        if len(without_icl_files) > 1:
+            without_icl_files = sorted(without_icl_files, key=lambda x: int(x.split('_')[-1].split('.')[0].split('T')[1]))
+            without_icl_filename = os.path.basename(without_icl_files[0])
+        else:
+            without_icl_filename = os.path.basename(without_icl_files[0])
     else:
         # Fallback to T1 if nothing found
         without_icl_filename = f"{model_name}_base_without_icl_T1.json"
@@ -623,7 +640,8 @@ def get_all_plot_metrics(uncertainty_mode):
 
 
 def process_trained_model_results_full(model_id, base_dir, model_type, trained_dataset, eval_dataset, 
-                                     icl_source, icl_demos, uncertainty_mode, label_type, hp_selection='performance'):
+                                     icl_source, icl_demos, uncertainty_mode, label_type, hp_selection='performance',
+                                     lora_r_filter=None, lora_type_filter=None):
     """Process trained model results with full metric support and hyperparameter selection options"""
     import glob
     import numpy as np
@@ -648,6 +666,10 @@ def process_trained_model_results_full(model_id, base_dir, model_type, trained_d
         if re.search(f'{model_id.split("/")[-1]}_{eval_dataset}_on_{icl_source}', os.path.basename(file)):
             if '_ldr' in file: # We don't process LDR results here
                 continue
+            # if 'r16' not in file and '16_16' not in file:
+            #     continue
+            # if '_qkv_' not in file:
+            #     continue
             filtered_files.append(file)
     all_files = filtered_files
 
@@ -672,7 +694,7 @@ def process_trained_model_results_full(model_id, base_dir, model_type, trained_d
             base_method = 'lora'
             training_variant = model_type
             
-        if training_variant in ['tok', 'a2t']:
+        if training_variant in ['tok', 'a2t', 'tokl']:
             parts = base.split('_')
             try:
                 for i, part in enumerate(parts):
@@ -683,10 +705,17 @@ def process_trained_model_results_full(model_id, base_dir, model_type, trained_d
                             label_type_in_file = 'icl_outputs'
                         else:
                             label_type_in_file = None
-                        if i + 4 < len(parts):
-                            N = int(parts[i + 3])
-                            lr = float(parts[i + 4])
-                            break
+
+                        if training_variant == 'tokl':
+                            if i + 5 < len(parts):
+                                N = int(parts[i + 4])
+                                lr = float(parts[i + 5])
+                                break
+                        else:
+                            if i + 4 < len(parts):
+                                N = int(parts[i + 3])
+                                lr = float(parts[i + 4])
+                                break
                 else:
                     N = None
                     lr = None
@@ -697,6 +726,8 @@ def process_trained_model_results_full(model_id, base_dir, model_type, trained_d
             run_match = re.search(r'_(\d+)\.json$', base)
             run_idx = int(run_match.group(1)) if run_match else None
             cew = None
+            # Note: tokl_top_k is not extracted here as it's not needed for HP selection,
+            # but it's present in the filename format: {label_type}_topk{value}
 
         elif training_variant in ['act', 't2a']:
             parts = base.split('_')
@@ -780,6 +811,18 @@ def process_trained_model_results_full(model_id, base_dir, model_type, trained_d
             trained_params = data.get('trained_model_params', {})
             if 'label_type' in trained_params and training_variant not in ['act', 't2a', 'tna'] and trained_params['label_type'] != label_type:
                 continue
+            
+            # Filter by lora_r if specified
+            if lora_r_filter is not None:
+                file_lora_r = trained_params.get('lora_r')
+                if file_lora_r != lora_r_filter:
+                    continue
+            
+            # Filter by lora_type if specified
+            if lora_type_filter is not None:
+                file_lora_type = trained_params.get('lora_type')
+                if file_lora_type != lora_type_filter:
+                    continue
 
             metrics = data.get('metrics', {})
             available_metrics.update(metrics.keys())
@@ -911,7 +954,7 @@ def main():
     parser.add_argument("--base_method", type=str, choices=['lora', 'ia3', 'prompt', 'prefix'], default='lora',
                         help="Base method to use (lora, ia3, prompt, prefix)")
     parser.add_argument("--training_variants", nargs='+', 
-                        choices=['tok', 'act', 'tna', 'a2t', 't2a'],
+                        choices=['tok', 'act', 'tna', 'a2t', 't2a', 'tokl'],
                         default=['tok', 'act', 'tna', 'a2t', 't2a'],
                         help="Training variants to include in plots")
     parser.add_argument("--include_base_model", action='store_true', default=True,
@@ -926,6 +969,10 @@ def main():
                         help="Output directory for plots")
     parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B",
                         help="Model ID for plot naming")
+    parser.add_argument("--lora_r", type=int, default=None,
+                        help="Filter by LoRA rank (only include results with this rank)")
+    parser.add_argument("--lora_type", type=str, default=None,
+                        help="Filter by LoRA type (only include results with this type, e.g., 'qkv', 'qko')")
     args = parser.parse_args()
 
     model_name = args.model_id.split('/')[-1]
@@ -963,7 +1010,8 @@ def main():
             'act': "Activation Training", 
             'tna': "Token + Activation Training",
             'a2t': "Sequential (act→tok) Training",
-            't2a': "Sequential (tok→act) Training"
+            't2a': "Sequential (tok→act) Training",
+            'tokl': "Token-level Soft Imitation Training"
         }
         
         for training_variant in args.training_variants:
@@ -978,7 +1026,8 @@ def main():
             method_data, best_hps, available_metrics = process_trained_model_results_full(
                 args.model_id, args.base_dir, model_type, args.trained_dataset, args.eval_dataset,
                 args.icl_source_dataset, args.icl_max_demos, args.uncertainty_mode, 
-                label_type=label_type, hp_selection=args.hp_selection
+                label_type=label_type, hp_selection=args.hp_selection,
+                lora_r_filter=args.lora_r, lora_type_filter=args.lora_type
             )
             if method_data:
                 all_results[method_name] = method_data
@@ -1019,6 +1068,8 @@ def main():
                 'uncertainty_mode': args.uncertainty_mode,
                 'label_type': label_type,
                 'hp_selection': args.hp_selection,
+                'lora_r_filter': args.lora_r,
+                'lora_type_filter': args.lora_type,
             },
             'results': all_results,
             'best_hyperparams': all_best_hyperparams

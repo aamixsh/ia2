@@ -29,7 +29,8 @@ def parse_answer_boxed(generated_output):
 def get_model_name(training_method, model_name, lora_type, lora_r, lora_alpha, 
                    num_generated_tokens, num_train_examples, lr, run_idx, 
                    label_type=None, ce_loss_weight=None, ia3_type=None, num_virtual_tokens=None,
-                   ldr_mode=False, num_labelled_samples=None, num_unlabelled_samples=None, max_permutations=None):
+                   ldr_mode=False, num_labelled_samples=None, num_unlabelled_samples=None, max_permutations=None,
+                   tokl_top_k=None):
     """Generate standardized model name based on training method and parameters"""
     # Parse training method to extract base method and variant
     if '-' in training_method:
@@ -44,9 +45,13 @@ def get_model_name(training_method, model_name, lora_type, lora_r, lora_alpha,
         ldr_suffix = f"_ldr{num_labelled_samples}_{num_unlabelled_samples}_{max_permutations}"
 
     # Handle existing LoRA methods (keep unchanged)
-    if training_method in ["tok", "a2t", "t2a"]:
+    if training_method in ["tok", "a2t", "t2a", "tokl"]:
         base_name = f"{model_name}_{lora_type}_{lora_r}_{lora_alpha}_{num_generated_tokens}_{num_train_examples}_{lr}_{run_idx}{ldr_suffix}"
-        return f"{base_name}_{label_type}"
+        if training_method == "tokl":
+            topk_suffix = f"_topk{tokl_top_k}" if tokl_top_k is not None else ""
+            return f"{base_name}_{label_type}{topk_suffix}"
+        else:
+            return f"{base_name}_{label_type}"
     elif training_method == "act":
         base_name = f"{model_name}_{lora_type}_{lora_r}_{lora_alpha}_{num_generated_tokens}_{num_train_examples}_{lr}_{run_idx}{ldr_suffix}"
         return base_name
@@ -57,7 +62,10 @@ def get_model_name(training_method, model_name, lora_type, lora_r, lora_alpha,
     # Handle new method variants
     elif base_method == "ia3":
         base_name = f"{model_name}_ia3_{ia3_type}_{num_generated_tokens}_{num_train_examples}_{lr}_{run_idx}{ldr_suffix}"
-        if training_variant in ["tok", "a2t", "t2a"]:
+        if training_variant in ["tok", "a2t", "t2a", "tokl"]:
+            if training_variant == "tokl":
+                topk_suffix = f"_topk{tokl_top_k}" if tokl_top_k is not None else ""
+                return f"{base_name}_{label_type}{topk_suffix}"
             return f"{base_name}_{label_type}"
         elif training_variant == "act":
             return base_name
@@ -65,7 +73,10 @@ def get_model_name(training_method, model_name, lora_type, lora_r, lora_alpha,
             return f"{base_name}_{ce_loss_weight}"
     elif base_method in ["prompt", "prefix"]:
         base_name = f"{model_name}_{base_method}_{num_virtual_tokens}_{num_generated_tokens}_{num_train_examples}_{lr}_{run_idx}{ldr_suffix}"
-        if training_variant in ["tok", "a2t", "t2a"]:
+        if training_variant in ["tok", "a2t", "t2a", "tokl"]:
+            if training_variant == "tokl":
+                topk_suffix = f"_topk{tokl_top_k}" if tokl_top_k is not None else ""
+                return f"{base_name}_{label_type}{topk_suffix}"
             return f"{base_name}_{label_type}"
         elif training_variant == "act":
             return base_name
@@ -107,6 +118,9 @@ def construct_results_path(args):
         # Handle existing LoRA methods (keep unchanged)
         if args.model_type in ['tok', 'a2t']:
             results_filename = f"{base_filename}_{args.lora_type}_{args.lora_r}_{args.lora_alpha}_{args.label_type}_{args.num_generated_tokens_eval}_{args.num_train_examples}_{args.lr}_{args.run_idx}{ldr_suffix}"
+        elif args.model_type in ['tokl']:
+            tokl_top_k = getattr(args, 'tokl_top_k', 'all')
+            results_filename = f"{base_filename}_{args.lora_type}_{args.lora_r}_{args.lora_alpha}_{args.label_type}_topk{tokl_top_k}_{args.num_generated_tokens_eval}_{args.num_train_examples}_{args.lr}_{args.run_idx}{ldr_suffix}"
             
         elif args.model_type in ['act', 't2a']:
             results_filename = f"{base_filename}_{args.lora_type}_r{args.lora_r}_a{args.lora_alpha}_{args.num_generated_tokens_eval}_{args.num_train_examples}_{args.lr}_{args.run_idx}{ldr_suffix}"
@@ -118,6 +132,9 @@ def construct_results_path(args):
         elif base_method == 'ia3':
             if training_variant in ['tok', 'a2t']:
                 results_filename = f"{base_filename}_ia3_{args.ia3_type}_{args.label_type}_{args.num_generated_tokens_eval}_{args.num_train_examples}_{args.lr}_{args.run_idx}{ldr_suffix}"
+            elif training_variant == 'tokl':
+                tokl_top_k = getattr(args, 'tokl_top_k', 'all')
+                results_filename = f"{base_filename}_ia3_{args.ia3_type}_{args.label_type}_topk{tokl_top_k}_{args.num_generated_tokens_eval}_{args.num_train_examples}_{args.lr}_{args.run_idx}{ldr_suffix}"
             elif training_variant == 'act':
                 results_filename = f"{base_filename}_ia3_{args.ia3_type}_{args.num_generated_tokens_eval}_{args.num_train_examples}_{args.lr}_{args.run_idx}{ldr_suffix}"
             elif training_variant == 'tna':
@@ -126,6 +143,9 @@ def construct_results_path(args):
         elif base_method in ['prompt', 'prefix']:
             if training_variant in ['tok', 'a2t']:
                 results_filename = f"{base_filename}_{base_method}_{args.num_virtual_tokens}_{args.label_type}_{args.num_generated_tokens_eval}_{args.num_train_examples}_{args.lr}_{args.run_idx}{ldr_suffix}"
+            elif training_variant == 'tokl':
+                tokl_top_k = getattr(args, 'tokl_top_k', 'all')
+                results_filename = f"{base_filename}_{base_method}_{args.num_virtual_tokens}_{args.label_type}_topk{tokl_top_k}_{args.num_generated_tokens_eval}_{args.num_train_examples}_{args.lr}_{args.run_idx}{ldr_suffix}"
             elif training_variant == 'act':
                 results_filename = f"{base_filename}_{base_method}_{args.num_virtual_tokens}_{args.num_generated_tokens_eval}_{args.num_train_examples}_{args.lr}_{args.run_idx}{ldr_suffix}"
             elif training_variant == 'tna':

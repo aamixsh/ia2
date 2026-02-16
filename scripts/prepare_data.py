@@ -8,6 +8,142 @@ from tqdm import tqdm
 from transformers import AutoTokenizer
 from remap_utils import remap_tokens
 
+def format_question_mmlupro(example):
+    """Formats a single MMLU-Pro example into the desired string format."""
+    question_text = example['question']
+    options = example['options']
+    
+    choices_str = ""
+    for i, option in enumerate(options):
+        choices_str += f"{i}) {option}\n"
+        
+    formatted = f"Question: {question_text}\nChoices:\n{choices_str}Answer: "
+    return formatted
+
+def prepare_mmlupro_data(output_dir="../data/mmlupro", seed=42, model_id="meta-llama/Llama-3.2-1B"):
+    """Loads MMLU-Pro, processes it by category, and saves split datasets."""
+    print("Loading MMLU-Pro dataset...")
+    # Load only the test split as per the dataset structure on Hugging Face
+    try:
+        ds = load_dataset("TIGER-Lab/MMLU-Pro", split='test')
+        print(f"Dataset loaded. Number of examples: {len(ds)}")
+    except Exception as e:
+        print(f"Error loading dataset: {e}")
+        return
+
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"Output directory: {output_dir}")
+
+    # Get unique categories
+    try:
+        categories = sorted(list(set(ds['category'])))
+        print(f"Found categories: {categories}")
+    except Exception as e:
+        print(f"Error accessing categories: {e}")
+        # Fallback if direct access fails (might happen with streaming)
+        print("Attempting to iterate through dataset to find categories...")
+        categories = set()
+        for example in tqdm(ds, desc="Finding categories"):
+            categories.add(example['category'])
+        categories = sorted(list(categories))
+        if not categories:
+            print("Could not determine categories. Exiting.")
+            return
+        print(f"Found categories through iteration: {categories}")
+
+
+    # training_categories = {"economics", "psychology", "business"}
+    training_categories = {"math", "physics", "chemistry", "law", "engineering"}
+    num_val_samples = 500
+    random.seed(seed) # for reproducibility of train/val splits
+
+    for category in tqdm(categories, desc="Processing categories"):
+        print(f"\nProcessing category: {category}...")
+
+        max_choices = 0
+        query_lengths = []
+        token_lengths = []
+        
+        # Filter dataset for the current category
+        try:
+            category_ds = ds.filter(lambda example: example['category'] == category)
+            print(f"  Number of examples in {category}: {len(category_ds)}")
+            if len(category_ds) == 0:
+                print(f"  Skipping category {category} due to 0 examples after filtering.")
+                continue
+        except Exception as e:
+            print(f"  Error filtering dataset for category {category}: {e}")
+            continue
+
+        # Format examples
+        processed_examples = []
+        for example in tqdm(category_ds, desc=f"Formatting {category}", leave=False):
+            formatted_q = format_question_mmlupro(example)
+            processed_examples.append({
+                "idx": example['question_id'],
+                "question": formatted_q,
+                "answer": example['answer_index'],
+            })
+            max_choices = max(max_choices, example['answer_index'] + 1)
+            query_lengths.append(len(formatted_q))
+            token_lengths.append(len(tokenizer.encode(formatted_q)))
+        # Shuffle examples before splitting
+        random.shuffle(processed_examples)
+
+        # Split into train and validation
+        train_examples = []
+        val_examples = []
+
+        if category in training_categories:
+            if len(processed_examples) > num_val_samples:
+                val_examples = processed_examples[:num_val_samples]
+                train_examples = processed_examples[num_val_samples:]
+                print(f"  Splitting {category}: {len(train_examples)} train, {len(val_examples)} val")
+            else:
+                # If fewer examples than num_val_samples, put all in validation
+                val_examples = processed_examples
+                print(f"  Category {category} has <= {num_val_samples} examples ({len(processed_examples)}). All assigned to validation.")
+        else:
+            # For non-training categories, all go to validation
+            val_examples = processed_examples
+            print(f"  Category {category} not in training set. All {len(val_examples)} examples assigned to validation.")
+
+        # Save the data for the category
+        category_filename = f"{category.replace(' ', '_').lower()}.json" # Sanitize filename
+        output_path = os.path.join(output_dir, category_filename)
+        data_dict = {
+            "metadata": {
+                "max_choices": max_choices,
+                "max_query_length": max(query_lengths),
+                "max_95p_query_length": np.percentile(query_lengths, 95),
+                "min_query_length": min(query_lengths),
+                "mean_query_length": np.mean(query_lengths),
+                "median_query_length": np.median(query_lengths),
+                "std_query_length": np.std(query_lengths),
+                "num_examples": len(processed_examples),
+                "max_token_length": max(token_lengths),
+                "max_95p_token_length": np.percentile(token_lengths, 95),
+                "min_token_length": min(token_lengths),
+                "mean_token_length": np.mean(token_lengths),
+                "median_token_length": np.median(token_lengths),
+                "std_token_length": np.std(token_lengths),
+            },
+            "train_examples": train_examples,
+            "val_examples": val_examples
+        }
+
+        try:
+            with open(output_path, "w") as f:
+                json.dump(data_dict, f, indent=4) # Use indent for readability
+            print(f"  Saved data for {category} to {output_path}")
+        except Exception as e:
+            print(f"  Error saving data for category {category} to {output_path}: {e}")
+
+    print("\nFinished processing all categories.")
+
 def format_question_sciqa(example, prompt_template='normal', remap_dict=None):
     """Formats a single SCiQ example into the desired string format."""
     question_text = example['question']

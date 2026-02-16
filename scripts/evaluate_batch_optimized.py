@@ -64,6 +64,7 @@ class EvaluationTask:
     lr: Optional[float] = None
     ce_loss_weight: Optional[float] = None
     label_type: Optional[str] = None
+    tokl_top_k: Optional[str] = None
     
     # LDR (Low Data Regime) parameters
     ldr_mode: bool = False
@@ -94,12 +95,15 @@ class EvaluationTask:
         if self.ldr_mode and self.num_labelled_samples is not None and self.num_unlabelled_samples is not None and self.max_permutations is not None:
             ldr_suffix = f"_ldr{self.num_labelled_samples}_{self.num_unlabelled_samples}_{self.max_permutations}"
         
-        if base_method in ['lora'] or self.model_type in ['tok', 'act', 'tna', 'a2t', 't2a']:
-            return f"{self.model_type}_{self.trained_dataset}_{self.lora_type}_{self.lora_r}_{self.lora_alpha}_{self.num_generated_tokens_train}_{self.num_train_examples}_{self.lr}_{self.run_idx}_{self.label_type}_{self.ce_loss_weight}{ldr_suffix}"
+        if base_method in ['lora'] or self.model_type in ['tok', 'tokl', 'act', 'tna', 'a2t', 't2a']:
+            tokl_suffix = f"_topk{self.tokl_top_k}" if self.model_type == 'tokl' and self.tokl_top_k else ""
+            return f"{self.model_type}_{self.trained_dataset}_{self.lora_type}_{self.lora_r}_{self.lora_alpha}_{self.num_generated_tokens_train}_{self.num_train_examples}_{self.lr}_{self.run_idx}_{self.label_type}_{self.ce_loss_weight}{tokl_suffix}{ldr_suffix}"
         elif base_method == 'ia3':
-            return f"{self.model_type}_{self.trained_dataset}_{self.ia3_type}_{self.num_generated_tokens_train}_{self.num_train_examples}_{self.lr}_{self.run_idx}_{self.label_type}_{self.ce_loss_weight}{ldr_suffix}"
+            tokl_suffix = f"_topk{self.tokl_top_k}" if training_variant == 'tokl' and self.tokl_top_k else ""
+            return f"{self.model_type}_{self.trained_dataset}_{self.ia3_type}_{self.num_generated_tokens_train}_{self.num_train_examples}_{self.lr}_{self.run_idx}_{self.label_type}_{self.ce_loss_weight}{tokl_suffix}{ldr_suffix}"
         elif base_method in ['prompt', 'prefix']:
-            return f"{self.model_type}_{self.trained_dataset}_{self.num_virtual_tokens}_{self.num_generated_tokens_train}_{self.num_train_examples}_{self.lr}_{self.run_idx}_{self.label_type}_{self.ce_loss_weight}{ldr_suffix}"
+            tokl_suffix = f"_topk{self.tokl_top_k}" if training_variant == 'tokl' and self.tokl_top_k else ""
+            return f"{self.model_type}_{self.trained_dataset}_{self.num_virtual_tokens}_{self.num_generated_tokens_train}_{self.num_train_examples}_{self.lr}_{self.run_idx}_{self.label_type}_{self.ce_loss_weight}{tokl_suffix}{ldr_suffix}"
         else:
             return f"{self.model_type}_{self.trained_dataset}_{self.run_idx}{ldr_suffix}"
 
@@ -188,11 +192,14 @@ class ModelManager:
             ldr_suffix = f"_ldr{task.num_labelled_samples}_{task.num_unlabelled_samples}_{task.max_permutations}"
         
         # Handle existing LoRA methods
-        if task.model_type in ['tok', 'act', 'tna', 'a2t']:
+        if task.model_type in ['tok', 'tokl', 'act', 'tna', 'a2t']:
             base_name = f"{task.base_output_dir}/{task.model_type}/{task.trained_dataset}/{model_name_base}_{task.lora_type}_{task.lora_r}_{task.lora_alpha}_{task.num_generated_tokens_train}_{task.num_train_examples}_{task.lr}_{task.run_idx}{ldr_suffix}"
             
             if task.model_type in ['tok', 'a2t']:
                 return f"{base_name}_{task.label_type}"
+            elif task.model_type == 'tokl':
+                tokl_suffix = f"_topk{task.tokl_top_k}" if task.tokl_top_k else ""
+                return f"{base_name}_{task.label_type}{tokl_suffix}"
             elif task.model_type in ['act', 't2a']:
                 return base_name
             elif task.model_type == 'tna':
@@ -203,6 +210,9 @@ class ModelManager:
             base_name = f"{task.base_output_dir}/{task.model_type}/{task.trained_dataset}/{model_name_base}_ia3_{task.ia3_type}_{task.num_generated_tokens_train}_{task.num_train_examples}_{task.lr}_{task.run_idx}{ldr_suffix}"
             if training_variant in ['tok', 'a2t']:
                 return f"{base_name}_{task.label_type}"
+            elif training_variant == 'tokl':
+                tokl_suffix = f"_topk{task.tokl_top_k}" if task.tokl_top_k else ""
+                return f"{base_name}_{task.label_type}{tokl_suffix}"
             elif training_variant == 'act':
                 return base_name
             elif training_variant == 'tna':
@@ -212,6 +222,9 @@ class ModelManager:
             base_name = f"{task.base_output_dir}/{task.model_type}/{task.trained_dataset}/{model_name_base}_{base_method}_{task.num_virtual_tokens}_{task.num_generated_tokens_train}_{task.num_train_examples}_{task.lr}_{task.run_idx}{ldr_suffix}"
             if training_variant in ['tok', 'a2t']:
                 return f"{base_name}_{task.label_type}"
+            elif training_variant == 'tokl':
+                tokl_suffix = f"_topk{task.tokl_top_k}" if task.tokl_top_k else ""
+                return f"{base_name}_{task.label_type}{tokl_suffix}"
             elif training_variant == 'act':
                 return base_name
             elif training_variant == 'tna':
@@ -1210,7 +1223,84 @@ def find_trained_models(base_output_dir, model_type, trained_dataset, filters):
                     'run_idx': run_idx,
                     'label_type': label_type,
                     'ce_loss_weight': None,
-                    'ldr_suffix': ldr_suffix
+                    'ldr_suffix': ldr_suffix,
+                })
+
+            elif model_type == 'tokl':
+                # Format: {model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}_{label_type}_topk{value}[_ldrN_M_K]
+                if len(parts) < 11:  # Need at least base + _topk{value}
+                    continue
+                if filters.get('ldr_mode') and len(parts) < 14:
+                    continue
+                model_name = parts[0]
+                lora_type = parts[1]
+                lora_r = int(parts[2])
+                lora_alpha = int(parts[3])
+                num_tokens = int(parts[4])
+                num_examples = int(parts[5])
+                lr = float(parts[6])
+                run_idx = int(parts[7])
+                
+                # Check for LDR suffix
+                ldr_suffix = None
+                tokl_top_k = None
+                if len(parts) >= 14 and parts[8].startswith('ldr'):
+                    # LDR mode: {model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}_ldr{N}_{M}_{K}_{label_type}_topk{value}
+                    num_unlabelled = int(parts[9])
+                    max_perm = int(parts[10])
+                    if filters.get('ldr_mode') and filters['ldr_mode']:
+                        if (filters.get('num_unlabelled_samples') and num_unlabelled not in filters['num_unlabelled_samples']):
+                            continue
+                        if (filters.get('max_permutations') and max_perm not in filters['max_permutations']):
+                            continue
+                    else:
+                        continue
+                    ldr_suffix = f"{num_unlabelled}_{max_perm}"
+                    # Find label_type and tokl_top_k
+                    label_type = '_'.join(parts[11:13])
+                    tokl_top_k = parts[13].replace('topk', '')
+                else:
+                    # Non-LDR: {model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}_{label_type}_topk{value}
+                    label_type = '_'.join(parts[8:10])
+                    tokl_top_k = parts[10].replace('topk', '')
+
+                # Filter by tokl_top_k if specified
+                if filters.get('tokl_top_k') and tokl_top_k not in filters['tokl_top_k']:
+                    continue
+
+                # Check filters
+                if (filters.get('model_name') and model_name not in filters['model_name']):
+                    continue
+                if (filters.get('lora_types') and lora_type not in filters['lora_types']):
+                    continue
+                if (filters.get('lora_rs') and lora_r not in filters['lora_rs']):
+                    continue
+                if (filters.get('lora_alphas') and lora_alpha not in filters['lora_alphas']):
+                    continue
+                if (filters.get('num_tokens') and num_tokens != filters['num_tokens']):
+                    continue
+                if (filters.get('num_examples') and num_examples not in filters['num_examples']):
+                    continue
+                if (filters.get('lrs') and lr not in filters['lrs']):
+                    continue
+                if (filters.get('run_indices') and run_idx not in filters['run_indices']):
+                    continue
+                if (filters.get('label_types') and label_type not in filters['label_types']):
+                    continue
+                
+                models_found.append({
+                    'model_name': model_name,
+                    'lora_type': lora_type,
+                    'lora_r': lora_r,
+                    'lora_alpha': lora_alpha,
+                    'num_tokens_train': num_tokens,
+                    'num_examples_train': num_examples,
+                    'lr': lr,
+                    'run_idx': run_idx,
+                    'label_type': label_type,
+                    'ce_loss_weight': None,
+                    'ldr_suffix': ldr_suffix,
+                    'tokl_top_k': tokl_top_k
                 })
             elif model_type in ['act', 't2a']:
                 # Format: {model}_{lora_type}_{r}_{alpha}_{tokens}_{examples}_{lr}_{run}[_ldrN_M_K]
@@ -1372,6 +1462,39 @@ def find_trained_models(base_output_dir, model_type, trained_dataset, filters):
                             label_type = "_".join(parts[7:])
                         
                         ce_loss_weight = None
+                        tokl_top_k = None
+                    elif training_variant == 'tokl':
+                        tokl_top_k = None
+                        if filters.get('ldr_mode') and filters['ldr_mode']:
+                            if len(parts) < 13:  # Need extra part for topk
+                                continue
+                            num_unlabelled = int(parts[8])
+                            max_perm = int(parts[9])
+                            if (filters.get('num_unlabelled_samples') and num_unlabelled not in filters['num_unlabelled_samples']):
+                                continue
+                            if (filters.get('max_permutations') and max_perm not in filters['max_permutations']):
+                                continue
+                            ldr_suffix = f"{num_unlabelled}_{max_perm}"
+                            # Format: {model}_ia3_{ia3_type}_{tokens}_{examples}_{lr}_{run}_ldr{N}_{M}_{K}_{label_type}_topk{value}
+                            if parts[11].startswith('topk'):
+                                tokl_top_k = parts[11].replace('topk', '')
+                                label_type = parts[10]
+                            else:
+                                label_type = "_".join(parts[10:])
+                        else:
+                            if len(parts) > 7 and 'ldr' in parts[7]:
+                                continue
+                            ldr_suffix = None
+                            # Format: {model}_ia3_{ia3_type}_{tokens}_{examples}_{lr}_{run}_{label_type}_topk{value}
+                            if len(parts) > 8 and parts[8].startswith('topk'):
+                                tokl_top_k = parts[8].replace('topk', '')
+                                label_type = parts[7]
+                            else:
+                                label_type = parts[7] if len(parts) > 7 else None
+                        
+                        if filters.get('tokl_top_k') and tokl_top_k not in filters['tokl_top_k']:
+                            continue
+                        ce_loss_weight = None
                     elif training_variant == 'act':
                         if filters.get('ldr_mode') and filters['ldr_mode']:
                             if len(parts) < 10:
@@ -1422,7 +1545,7 @@ def find_trained_models(base_output_dir, model_type, trained_dataset, filters):
                         continue
                     if (filters.get('run_indices') and run_idx not in filters['run_indices']):
                         continue
-                    if training_variant in ['tok', 'a2t'] and (filters.get('label_types') and label_type not in filters['label_types']):
+                    if training_variant in ['tok', 'a2t', 'tokl'] and (filters.get('label_types') and label_type not in filters['label_types']):
                         continue
                     if training_variant == 'tna' and (filters.get('ce_loss_weights') and ce_loss_weight not in filters['ce_loss_weights']):
                         continue
@@ -1441,7 +1564,8 @@ def find_trained_models(base_output_dir, model_type, trained_dataset, filters):
                         'run_idx': run_idx,
                         'label_type': label_type,
                         'ce_loss_weight': ce_loss_weight,
-                        'ldr_suffix': ldr_suffix
+                        'ldr_suffix': ldr_suffix,
+                        'tokl_top_k': tokl_top_k if training_variant == 'tokl' else None
                     })
                     
                 elif base_method in ['prompt', 'prefix']:
@@ -1473,6 +1597,37 @@ def find_trained_models(base_output_dir, model_type, trained_dataset, filters):
                             ldr_suffix = None
                             label_type = "_".join(parts[7:])
                         
+                        ce_loss_weight = None
+                        tokl_top_k = None
+                    elif training_variant == 'tokl':
+                        tokl_top_k = None
+                        if filters.get('ldr_mode') and filters['ldr_mode']:
+                            if len(parts) < 13:  # Need extra part for topk
+                                continue
+                            num_unlabelled = int(parts[8])
+                            max_perm = int(parts[9])
+                            if (filters.get('num_unlabelled_samples') and num_unlabelled not in filters['num_unlabelled_samples']):
+                                continue
+                            if (filters.get('max_permutations') and max_perm not in filters['max_permutations']):
+                                continue
+                            ldr_suffix = f"{num_unlabelled}_{max_perm}"
+                            # Format: {model}_{method}_{virtual_tokens}_{tokens}_{examples}_{lr}_{run}_ldr{N}_{M}_{K}_{label_type}_topk{value}
+                            if parts[11].startswith('topk'):
+                                tokl_top_k = parts[11].replace('topk', '')
+                                label_type = parts[10]
+                            else:
+                                label_type = "_".join(parts[10:])
+                        else:
+                            ldr_suffix = None
+                            # Format: {model}_{method}_{virtual_tokens}_{tokens}_{examples}_{lr}_{run}_{label_type}_topk{value}
+                            if len(parts) > 8 and parts[8].startswith('topk'):
+                                tokl_top_k = parts[8].replace('topk', '')
+                                label_type = parts[7]
+                            else:
+                                label_type = parts[7] if len(parts) > 7 else None
+                        
+                        if filters.get('tokl_top_k') and tokl_top_k not in filters['tokl_top_k']:
+                            continue
                         ce_loss_weight = None
                     elif training_variant == 'act':
                         if filters.get('ldr_mode') and filters['ldr_mode']:
@@ -1522,7 +1677,7 @@ def find_trained_models(base_output_dir, model_type, trained_dataset, filters):
                         continue
                     if (filters.get('run_indices') and run_idx not in filters['run_indices']):
                         continue
-                    if training_variant in ['tok', 'a2t'] and (filters.get('label_types') and label_type not in filters['label_types']):
+                    if training_variant in ['tok', 'a2t', 'tokl'] and (filters.get('label_types') and label_type not in filters['label_types']):
                         continue
                     if training_variant == 'tna' and (filters.get('ce_loss_weights') and ce_loss_weight not in filters['ce_loss_weights']):
                         continue
@@ -1540,7 +1695,8 @@ def find_trained_models(base_output_dir, model_type, trained_dataset, filters):
                         'run_idx': run_idx,
                         'label_type': label_type,
                         'ce_loss_weight': ce_loss_weight,
-                        'ldr_suffix': ldr_suffix
+                        'ldr_suffix': ldr_suffix,
+                        'tokl_top_k': tokl_top_k if training_variant == 'tokl' else None
                     })
         except (ValueError, IndexError) as e:
             print(f"Error parsing model name '{item}': {e}")
@@ -1570,6 +1726,7 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
         'run_indices': args.run_indices,
         'label_types': args.label_types,
         'ce_loss_weights': args.ce_loss_weights,
+        'tokl_top_k': args.tokl_top_k,
         'ldr_mode': args.ldr_mode,
         'num_labelled_samples': args.num_labelled_samples if args.ldr_mode else None,
         'num_unlabelled_samples': args.num_unlabelled_samples if args.ldr_mode else None,
@@ -1682,7 +1839,7 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                 training_variant = model_type
                             
                             # Handle different model types with their specific parameters
-                            if base_method in ['lora'] or model_type in ['tok', 'act', 'tna', 'a2t', 't2a']:
+                            if base_method in ['lora'] or model_type in ['tok', 'tokl', 'act', 'tna', 'a2t', 't2a']:
                                 dummy_args = SimpleNamespace(
                                     base_output_dir=args.base_output_dir,
                                     model_type=model_type,
@@ -1697,6 +1854,7 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                     run_idx=model['run_idx'],
                                     ce_loss_weight=model['ce_loss_weight'],
                                     label_type=model['label_type'],
+                                    tokl_top_k=model.get('tokl_top_k'),
                                     eval_dataset_name=eval_dataset,
                                     icl_source_dataset=icl_source,
                                     icl_max_demos=min(icl_max_demos, model['num_examples_train'] - 1),
@@ -1708,8 +1866,8 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                     gpu=gpu_id,
                                     ldr_mode=args.ldr_mode,
                                     num_labelled_samples=model['num_examples_train'] if args.ldr_mode else None,
-                                    num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode else None,
-                                    max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode else None
+                                    num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode and model.get('ldr_suffix') else None,
+                                    max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode and model.get('ldr_suffix') else None
                                 )
                             elif base_method == 'ia3':
                                 dummy_args = SimpleNamespace(
@@ -1724,6 +1882,7 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                     run_idx=model['run_idx'],
                                     ce_loss_weight=model['ce_loss_weight'],
                                     label_type=model['label_type'],
+                                    tokl_top_k=model.get('tokl_top_k'),
                                     eval_dataset_name=eval_dataset,
                                     icl_source_dataset=icl_source,
                                     icl_max_demos=min(icl_max_demos, model['num_examples_train'] - 1),
@@ -1735,8 +1894,8 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                     gpu=gpu_id,
                                     ldr_mode=args.ldr_mode,
                                     num_labelled_samples=model['num_examples_train'] if args.ldr_mode else None,
-                                    num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode else None,
-                                    max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode else None
+                                    num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode and model.get('ldr_suffix') else None,
+                                    max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode and model.get('ldr_suffix') else None
                                 )
                             elif base_method in ['prompt', 'prefix']:
                                 dummy_args = SimpleNamespace(
@@ -1751,6 +1910,7 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                     run_idx=model['run_idx'],
                                     ce_loss_weight=model['ce_loss_weight'],
                                     label_type=model['label_type'],
+                                    tokl_top_k=model.get('tokl_top_k'),
                                     eval_dataset_name=eval_dataset,
                                     icl_source_dataset=icl_source,
                                     icl_max_demos=min(icl_max_demos, model['num_examples_train'] - 1),
@@ -1762,8 +1922,8 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                     gpu=gpu_id,
                                     ldr_mode=args.ldr_mode,
                                     num_labelled_samples=model['num_examples_train'] if args.ldr_mode else None,
-                                    num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode else None,
-                                    max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode else None
+                                    num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode and model.get('ldr_suffix') else None,
+                                    max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode and model.get('ldr_suffix') else None
                                 )
                         
                         results_dir, results_filename = construct_results_path(dummy_args)
@@ -1798,7 +1958,7 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                 num_unlabelled_samples=None,
                                 max_permutations=None
                             )
-                        elif base_method in ['lora'] or model_type in ['tok', 'act', 'tna', 'a2t', 't2a']:
+                        elif base_method in ['lora'] or model_type in ['tok', 'tokl', 'act', 'tna', 'a2t', 't2a']:
                             task = EvaluationTask(
                                 base_output_dir=args.base_output_dir,
                                 model_type=model_type,
@@ -1818,14 +1978,15 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                 lr=model['lr'],
                                 ce_loss_weight=model['ce_loss_weight'],
                                 label_type=model['label_type'],
+                                tokl_top_k=model.get('tokl_top_k'),
                                 uncertainty_analysis=args.uncertainty_analysis,
                                 top_k=args.top_k,
                                 eval_with_icl=args.eval_with_icl,
                                 merge_lora=args.merge_lora,
                                 ldr_mode=args.ldr_mode,
                                 num_labelled_samples=model['num_examples_train'] if args.ldr_mode else None,
-                                num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode else None,
-                                max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode else None
+                                num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode and model.get('ldr_suffix') else None,
+                                max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode and model.get('ldr_suffix') else None
                             )
                         elif base_method == 'ia3':
                             task = EvaluationTask(
@@ -1845,14 +2006,15 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                 lr=model['lr'],
                                 ce_loss_weight=model['ce_loss_weight'],
                                 label_type=model['label_type'],
+                                tokl_top_k=model.get('tokl_top_k'),
                                 uncertainty_analysis=args.uncertainty_analysis,
                                 top_k=args.top_k,
                                 eval_with_icl=args.eval_with_icl,
                                 merge_lora=args.merge_lora,
                                 ldr_mode=args.ldr_mode,
                                 num_labelled_samples=model['num_examples_train'] if args.ldr_mode else None,
-                                num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode else None,
-                                max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode else None
+                                num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode and model.get('ldr_suffix') else None,
+                                max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode and model.get('ldr_suffix') else None
                             )
                         elif base_method in ['prompt', 'prefix']:
                             task = EvaluationTask(
@@ -1872,14 +2034,15 @@ def generate_evaluation_tasks(args) -> List[EvaluationTask]:
                                 lr=model['lr'],
                                 ce_loss_weight=model['ce_loss_weight'],
                                 label_type=model['label_type'],
+                                tokl_top_k=model.get('tokl_top_k'),
                                 uncertainty_analysis=args.uncertainty_analysis,
                                 top_k=args.top_k,
                                 eval_with_icl=args.eval_with_icl,
                                 merge_lora=args.merge_lora,
                                 ldr_mode=args.ldr_mode,
                                 num_labelled_samples=model['num_examples_train'] if args.ldr_mode else None,
-                                num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode else None,
-                                max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode else None
+                                num_unlabelled_samples=int(model['ldr_suffix'].split('_')[0]) if args.ldr_mode and model.get('ldr_suffix') else None,
+                                max_permutations=int(model['ldr_suffix'].split('_')[1]) if args.ldr_mode and model.get('ldr_suffix') else None
                             )
                         tasks.append(task)
     
@@ -2066,18 +2229,18 @@ def main():
     
     # Model selection
     parser.add_argument("--model_types", nargs='+', 
-                        choices=['tok', 'act', 'a2t', 'tna', 't2a', 'base', 
-                                'ia3-tok', 'ia3-act', 'ia3-tna', 'ia3-a2t', 'ia3-t2a',
-                                'prompt-tok', 'prompt-act', 'prompt-tna', 'prompt-a2t', 'prompt-t2a',
-                                'prefix-tok', 'prefix-act', 'prefix-tna', 'prefix-a2t', 'prefix-t2a'],
+                        choices=['tok', 'tokl', 'act', 'a2t', 'tna', 't2a', 'base', 
+                                'ia3-tok', 'ia3-tokl', 'ia3-act', 'ia3-tna', 'ia3-a2t', 'ia3-t2a',
+                                'prompt-tok', 'prompt-tokl', 'prompt-act', 'prompt-tna', 'prompt-a2t', 'prompt-t2a',
+                                'prefix-tok', 'prefix-tokl', 'prefix-act', 'prefix-tna', 'prefix-a2t', 'prefix-t2a'],
                         # default=['ia3-tok', 'ia3-act', 'ia3-tna', 'ia3-a2t', 'prefix-tok', 'prefix-act', 'prefix-tna', 'prefix-a2t'],
-                        default=['tok', 'act', 'tna', 'a2t'],
+                        default=['tok', 'tokl', 'act', 'tna', 'a2t'],
                         # default=['base'],
                         help="Types of models to evaluate")
     parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B-Instruct", 
                         choices=['meta-llama/Llama-3.2-1B', 'Qwen/Qwen3-4B-Base', 'Qwen/Qwen2.5-1.5B', 'meta-llama/Llama-3.2-1B-Instruct', 'meta-llama/Llama-3.1-8B', 'google/gemma-3-270m', 'meta-llama/Llama-3.2-3B'],
                         help="Base model ID")
-    parser.add_argument("--trained_datasets", nargs='+', default=['gsm8k'],
+    parser.add_argument("--trained_datasets", nargs='+', default=['sciqa'],
                         help="Datasets the models were trained on")
     
     # Model filtering
@@ -2093,9 +2256,9 @@ def main():
                         help="Number of virtual tokens for prompt/prefix tuning")
     parser.add_argument("--num_tokens", type=int, default=200,
                         help="Number of training tokens to include")
-    parser.add_argument("--num_examples", nargs='+', type=int, default=[4],
+    parser.add_argument("--num_examples", nargs='+', type=int, default=[2, 4, 8, 16, 32],
                         help="Number of training examples to include")
-    # parser.add_argument("--lrs", nargs='+', type=float, default=[1e-4, 3e-4, 5e-4, 1e-3, 3e-3, 5e-3],
+    # parser.add_argument("--lrs", nargs='+', type=float, default=[1e-5, 3e-5],
     parser.add_argument("--lrs", nargs='+', type=float, default=[1e-4, 3e-4, 1e-3],
     # parser.add_argument("--lrs", nargs='+', type=float, default=[1e-3, 5e-3, 1e-2, 5e-2, 1e-1],
                         help="Learning rates to include")
@@ -2105,9 +2268,10 @@ def main():
                         choices=['ground_truth', 'icl_outputs'],
                         default=['icl_outputs', 'ground_truth'],
                         help="Label types to include (for tok models)")
-    # parser.add_argument("--ce_loss_weights", nargs='+', type=float, default=[0.1, 0.5, 0.7, 0.9],
-    parser.add_argument("--ce_loss_weights", nargs='+', type=float, default=[0.001, 0.01, 0.05, 0.5],
+    parser.add_argument("--ce_loss_weights", nargs='+', type=float, default=[0.001, 0.01, 0.05, 0.1, 0.5, 0.7, 0.9],
                         help="CE loss weights to include (for tna models)")
+    parser.add_argument("--tokl_top_k", nargs='+', type=str, default=['all'],
+                        help="Top-K values to include for tokl models (can be 'all' or numeric)")
     
     # LDR (Low Data Regime) arguments
     parser.add_argument("--ldr_mode", action='store_true', 
@@ -2120,9 +2284,9 @@ def main():
                        help="Maximum number of permutations of labelled samples (K) - only used in LDR mode")
     
     # Evaluation settings
-    parser.add_argument("--eval_datasets", nargs='+', default=['gsm8k', 'gsm8ks'],
+    parser.add_argument("--eval_datasets", nargs='+', default=['sciqa'],
                         help="Datasets to evaluate on")
-    parser.add_argument("--icl_source_datasets", nargs='+', default=['gsm8k'],
+    parser.add_argument("--icl_source_datasets", nargs='+', default=['sciqa'],
                         help="ICL source datasets")
     parser.add_argument("--icl_max_demos", nargs='+', type=int, default=[256],
                         help="ICL demo counts")
@@ -2140,7 +2304,7 @@ def main():
                         help="Merge LoRA weights before evaluation")
     
     # Performance settings
-    parser.add_argument("--batch_size", type=int, default=500,
+    parser.add_argument("--batch_size", type=int, default=250,
                         help="Batch size for evaluation")
     parser.add_argument("--gpus", nargs='+', type=int, default=[3],
                         help="GPU IDs to use")
